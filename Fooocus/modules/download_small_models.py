@@ -200,6 +200,31 @@ def download_models():
         except Exception as e:
             print(f"   ⚠ Could not download {filename}: {e}")
 
+    # Failsafe: Ensure config.json exists
+    config_path = expansion_dir / "config.json"
+    if not config_path.exists():
+        print("   ⚠ config.json missing, creating default GPT-2 config...")
+        import json
+        default_config = {
+            "activation_function": "gelu_new",
+            "attn_pdrop": 0.1,
+            "bos_token_id": 50256,
+            "embd_pdrop": 0.1,
+            "eos_token_id": 50256,
+            "initializer_range": 0.02,
+            "layer_norm_epsilon": 1e-05,
+            "model_type": "gpt2",
+            "n_ctx": 1024,
+            "n_embd": 768,
+            "n_head": 12,
+            "n_layer": 6,
+            "n_positions": 1024,
+            "resid_pdrop": 0.1,
+            "vocab_size": 50257
+        }
+        with open(config_path, 'w') as f:
+            json.dump(default_config, f)
+
     if (models_dir / "fooocus_expansion").exists():
         shutil.rmtree(models_dir / "fooocus_expansion")
 
