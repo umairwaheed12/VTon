@@ -23,10 +23,13 @@ class ShoulderHeightDressWarper:
         try:
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            print(f"DEBUG: ORT Available Providers: {ort.get_available_providers()}")
             self.session = ort.InferenceSession(str(seg_model_path), sess_options=sess_opts, providers=providers)
             print(f"DressWarper ONNX Runtime Providers: {self.session.get_providers()}")
-        except Exception:
-            print("Warning: Failed to load ONNX with CUDA, falling back to CPU")
+        except Exception as e:
+            print(f"Warning: Failed to load ONNX with CUDA, falling back to CPU. Error: {e}")
+            import traceback
+            traceback.print_exc()
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             self.session = ort.InferenceSession(str(seg_model_path), sess_options=sess_opts, providers=['CPUExecutionProvider'])

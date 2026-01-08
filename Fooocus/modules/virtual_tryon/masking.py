@@ -51,13 +51,19 @@ class ClothMasker:
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            print(f"DEBUG: Masking ORT Available Providers: {ort.get_available_providers()}")
             self.onnx_session = ort.InferenceSession(str(onnx_model_path), sess_options=sess_opts, providers=providers)
             print(f"LIP ONNX Providers: {self.onnx_session.get_providers()}")
             self.onnx_input_name = self.onnx_session.get_inputs()[0].name
             print("[OK] LIP parsing ONNX model loaded successfully")
         except Exception as e:
-            print(f"[ERROR] Failed to load ONNX model: {e}")
-            raise
+            print(f"[ERROR] Failed to load ONNX model with CUDA: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback to CPU
+            print("Falling back to CPU for LIP model...")
+            self.onnx_session = ort.InferenceSession(str(onnx_model_path), sess_options=sess_opts, providers=['CPUExecutionProvider'])
+            self.onnx_input_name = self.onnx_session.get_inputs()[0].name
         
         # Initialize MediaPipe Pose for backup detection
         print("Loading MediaPipe Pose for backup detection...")
@@ -74,8 +80,17 @@ class ClothMasker:
                 self.b2_input_name = self.b2_session.get_inputs()[0].name
                 print("[OK] B2 clothes parsing ONNX model loaded successfully")
             except Exception as e:
-                print(f"[ERROR] Failed to load B2 ONNX model: {e}")
-                # Don't raise, just disable v3 if b2 is missing
+                print(f"[ERROR] Failed to load B2 ONNX model with CUDA: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fallback to CPU if needed, or just disable V3 (less critical)
+                print("Falling back to CPU for B2 model...")
+                try:
+                    self.b2_session = ort.InferenceSession(str(b2_onnx_path), sess_options=sess_opts, providers=['CPUExecutionProvider'])
+                    self.b2_input_name = self.b2_session.get_inputs()[0].name
+                except Exception as ex:
+                     print(f"FAILED to load B2 model even on CPU: {ex}")
+                     self.b2_session = None
     
     
     def get_cloth_mask(self, image):
