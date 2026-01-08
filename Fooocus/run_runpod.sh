@@ -22,5 +22,7 @@ python modules/download_small_models.py
 # --listen: allows external connections
 # --port 7865: matches RunPod default exposed port
 # --share: creates a gradio.live link as a backup
+echo "Final verification: Ensure onnxruntime (CPU) is removed..."
+pip uninstall -y onnxruntime
 echo "Launching Fooocus..."
 python launch.py --listen --port 7865 --share
