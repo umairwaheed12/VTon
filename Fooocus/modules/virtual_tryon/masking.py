@@ -802,14 +802,10 @@ class ClothMasker:
         print(f">> Applying overlay (color: {overlay_color}, alpha: {alpha})...")
         result = self.apply_overlay(image, combined_mask, overlay_color, alpha)
         
-        # Save result
-        cv2.imwrite(str(output_path), result)
-        print(f"[SAVED] Masked result: {output_path}")
-        
-        # Also save just the mask for reference
-        from pathlib import Path
-        output_p = Path(output_path)
-        mask_only_path = str(output_p.parent / (output_p.stem + '_mask' + output_p.suffix))
+        # Save result (Only if output_path is provided)
+        if output_path:
+            cv2.imwrite(str(output_path), result)
+            print(f"[SAVED] Masked result: {output_path}")
         
         # Prepare the mask to save: cloth border + warp mask + bottom filling + ARMS/HANDS
         mask_to_save = border_mask.copy()
@@ -819,42 +815,53 @@ class ClothMasker:
         print(f">> Including arms/hands in saved mask")
         mask_to_save = cv2.bitwise_or(mask_to_save, skin_mask)
         
-        # Include warp mask if it was loaded
+        # Also remove face/hair from mask_to_save just to be safe
+        mask_to_save[face_hair_protection > 0] = 0
+        
+        # Save mask if path provided
+        if output_path:
+            from pathlib import Path
+            output_p = Path(output_path)
+            mask_only_path = str(output_p.parent / (output_p.stem + '_mask' + output_p.suffix))
+            cv2.imwrite(mask_only_path, mask_to_save)
+            print(f"[SAVED] Mask only: {mask_only_path}")
+
+            # Also save visualization of segmentation for debugging
+            # seg_vis_path = str(output_p.parent / (output_p.stem + '_seg_vis' + output_p.suffix))
+            # cv2.imwrite(seg_vis_path, cloth_mask)
+        
+        # Generate V2 Mask (Inpaint Mask)
+        # This is the mask used for Fooocus inpainting. 
+        # White = Inpaint Area (Cloth + border + arms/legs)
+        # Black = Keep (Face, background)
+        mask_v2 = mask_to_save.copy() # Start with the overlay regions
+        
+        # Also include the actual cloth mask itself (to ensure the interior of the cloth is repainted)
+        mask_v2 = cv2.bitwise_or(mask_v2, cloth_mask)
+        
+        # Ensure warp mask is also included
         if warp_mask is not None:
-            print(f">> Including warp mask from robust_cloth_warp.py in saved mask")
-            mask_to_save = cv2.bitwise_or(mask_to_save, warp_mask)
+             mask_v2 = cv2.bitwise_or(mask_v2, warp_mask)
         
-        # Include bottom filling (connection_mask) if it exists
-        if connection_mask is not None:
-            # Only include if specifically enabled (currently disabled)
-            pass
-            # print(f">> Including bottom gap filling in saved mask")
-            # mask_to_save = cv2.bitwise_or(mask_to_save, connection_mask)
+        # CRITICAL: Exclude face/hair/background from V2 mask to protect them
+        mask_v2[face_hair_protection > 0] = 0
         
-        # Apply minimal clean up
-        kernel_close_small = np.ones((3, 3), np.uint8)
-        mask_to_save = cv2.morphologyEx(mask_to_save, cv2.MORPH_CLOSE, kernel_close_small)
+        if output_path:
+            mask_v2_path = str(output_p.parent / (output_p.stem + '_mask_v2' + output_p.suffix))
+            cv2.imwrite(mask_v2_path, mask_v2)
+            print(f"[SAVED] Inpaint Mask (V2): {mask_v2_path}")
         
-        # REMOVED: Large closing and floodFill which destroys gaps
-        # kernel_close_medium = np.ones((21, 21), np.uint8)
-        # mask_to_save = cv2.morphologyEx(mask_to_save, cv2.MORPH_CLOSE, kernel_close_medium)
+        # Generate V3 Mask (Experimental "Soft" Mask) - Optional
+        mask_v3 = None
+        if generate_v3:
+            try:
+                # ... (V3 Logic would go here if enabled) ...
+                mask_v3 = mask_v2.copy() # Placeholder
+            except Exception as e:
+                print(f"[WARNING] V3 mask generation failed: {e}")
+                
+        return result, mask_to_save, mask_v2
         
-        # mask_inv = cv2.bitwise_not(mask_to_save)
-        # cv2.floodFill(...)
-        # holes = cv2.bitwise_not(mask_inv)
-        # mask_to_save = cv2.bitwise_or(mask_to_save, holes)
-        
-        kernel_final = np.ones((5, 5), np.uint8)
-        mask_to_save = cv2.morphologyEx(mask_to_save, cv2.MORPH_CLOSE, kernel_final)
-        
-        # EXCLUDE MediaPipe legs from the final mask
-        if hasattr(self, 'mp_legs_visualization') and self.mp_legs_visualization is not None:
-            print(f">> Excluding MediaPipe legs from final saved mask")
-            # Remove legs (set pixels to 0 where legs are detected)
-            mask_to_save[self.mp_legs_visualization > 0] = 0
-            print(f"   - Legs excluded from mask")
-        
-        # RE-ADD the warp mask from robust_cloth_warp.py at the end
         if warp_mask is not None:
             print(f">> Re-adding warp mask from robust_cloth_warp.py at the end")
             mask_to_save = cv2.bitwise_or(mask_to_save, warp_mask)
