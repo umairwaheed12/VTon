@@ -138,27 +138,30 @@ def download_models():
     # ------------------------------------------------------------------
     # 4. SegFormer B2 Clothes ONNX (from mattmdjaga/segformer_b2_clothes)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 4. SegFormer B2 Clothes ONNX (from mattmdjaga/segformer_b2_clothes)
+    # ------------------------------------------------------------------
     print("\n[4/4] Downloading SegFormer B2 Clothes (ONNX)...")
-    b2_clothes_dir = models_dir / "SegFormerB2Clothes"
-    b2_clothes_dir.mkdir(exist_ok=True)
+    target_b2 = models_dir / "segformer_b2_clothes.onnx"
     
-    # The file in the repo is 'onnx/model.onnx'
-    hf_hub_download(
-        repo_id="mattmdjaga/segformer_b2_clothes",
-        filename="onnx/model.onnx",
-        local_dir=models_dir,
-        local_dir_use_symlinks=False
-    )
-    
-    source_b2 = models_dir / "onnx" / "model.onnx"
-    target_b2 = b2_clothes_dir / "segformer_b2_clothes.onnx"
-    
-    if source_b2.exists():
-        shutil.move(str(source_b2), str(target_b2))
-        try:
-            shutil.rmtree(models_dir / "onnx")
-        except:
-            pass
+    if not target_b2.exists():
+        # The file in the repo is 'onnx/model.onnx'
+        hf_hub_download(
+            repo_id="mattmdjaga/segformer_b2_clothes",
+            filename="onnx/model.onnx",
+            local_dir=models_dir,
+            local_dir_use_symlinks=False
+        )
+        
+        source_b2 = models_dir / "onnx" / "model.onnx"
+        if source_b2.exists():
+            shutil.move(str(source_b2), str(target_b2))
+            try:
+                shutil.rmtree(models_dir / "onnx")
+            except:
+                pass
+    else:
+        print(f"   ✓ segformer_b2_clothes.onnx already exists.")
             
     print(f"✓ Downloaded to: {target_b2}")
     

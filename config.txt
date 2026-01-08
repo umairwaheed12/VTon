@@ -16,5 +16,5 @@
     "path_wildcards": "Fooocus/wildcards",
     "path_safety_checker": "Fooocus/models/safety_checker",
     "path_sam": "Fooocus/models/sam",
-    "path_outputs": "Fooocus/outputs"
+    "path_outputs": "outputs"
 }
