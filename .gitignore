@@ -4,6 +4,9 @@ __pycache__/
 
 # Exclude models (download them on RunPod instead)
 Fooocus/models/
+!Fooocus/models/prompt_expansion/fooocus_expansion/*.json
+!Fooocus/models/prompt_expansion/fooocus_expansion/*.txt
+!Fooocus/models/prompt_expansion/fooocus_expansion/merges.txt
 *.safetensors
 *.bin
 *.onnx

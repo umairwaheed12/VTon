@@ -169,75 +169,28 @@ def download_models():
     expansion_dir = models_dir / "prompt_expansion" / "fooocus_expansion"
     expansion_dir.mkdir(parents=True, exist_ok=True)
     
-    expansion_files = [
-        "pytorch_model.bin",
-    ]
-    
     # 1. Download the model weights from lllyasviel/misc
-    print(f"   Downloading pytorch_model.bin (from fooocus_expansion.bin)...")
-    try:
-        hf_hub_download(
-            repo_id="lllyasviel/misc",
-            filename="fooocus_expansion.bin",
-            local_dir=models_dir,
-            local_dir_use_symlinks=False
-        )
-        # Move and rename
-        source_bin = models_dir / "fooocus_expansion.bin"
-        if source_bin.exists():
-            shutil.move(str(source_bin), str(expansion_dir / "pytorch_model.bin"))
-    except Exception as e:
-        print(f"   ⚠ Failed to download weights: {e}")
-
-    # 2. Download config and tokenizer from standard GPT-2 (fallback)
-    print(f"   Downloading config and tokenizer (GPT-2 base) + positive.txt...")
-    gpt2_files = ["config.json", "vocab.json", "merges.txt", "tokenizer.json", "tokenizer_config.json"]
-    for filename in gpt2_files:
+    weights_path = expansion_dir / "pytorch_model.bin"
+    if not weights_path.exists():
+        print(f"   Downloading pytorch_model.bin (from fooocus_expansion.bin)...")
         try:
             hf_hub_download(
-                repo_id="openai-community/gpt2",
-                filename=filename,
-                local_dir=expansion_dir,
+                repo_id="lllyasviel/misc",
+                filename="fooocus_expansion.bin",
+                local_dir=models_dir,
                 local_dir_use_symlinks=False
             )
+            # Move and rename
+            source_bin = models_dir / "fooocus_expansion.bin"
+            if source_bin.exists():
+                shutil.move(str(source_bin), str(weights_path))
         except Exception as e:
-            print(f"   ⚠ Could not download {filename}: {e}")
+            print(f"   ⚠ Failed to download weights: {e}")
+    else:
+        print(f"   ✓ pytorch_model.bin already exists.")
 
-    # 3. Download positive.txt from lllyasviel/misc
-    try:
-        hf_hub_download(
-            repo_id="lllyasviel/misc",
-            filename="positive.txt",
-            local_dir=expansion_dir,
-            local_dir_use_symlinks=False
-        )
-    except Exception as e:
-        print(f"   ⚠ Could not download positive.txt: {e}")
-
-    # Failsafe: Ensure config.json exists
-    config_path = expansion_dir / "config.json"
-    if not config_path.exists():
-        print("   ⚠ config.json missing, creating default GPT-2 config...")
-        import json
-        default_config = {
-            "activation_function": "gelu_new",
-            "attn_pdrop": 0.1,
-            "bos_token_id": 50256,
-            "embd_pdrop": 0.1,
-            "eos_token_id": 50256,
-            "initializer_range": 0.02,
-            "layer_norm_epsilon": 1e-05,
-            "model_type": "gpt2",
-            "n_ctx": 1024,
-            "n_embd": 768,
-            "n_head": 12,
-            "n_layer": 6,
-            "n_positions": 1024,
-            "resid_pdrop": 0.1,
-            "vocab_size": 50257
-        }
-        with open(config_path, 'w') as f:
-            json.dump(default_config, f)
+    if (models_dir / "fooocus_expansion.bin").exists():
+        os.remove(models_dir / "fooocus_expansion.bin")
 
     if (models_dir / "fooocus_expansion").exists():
         shutil.rmtree(models_dir / "fooocus_expansion")
