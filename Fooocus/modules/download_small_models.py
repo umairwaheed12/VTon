@@ -161,6 +161,40 @@ def download_models():
             pass
             
     print(f"✓ Downloaded to: {target_b2}")
+    
+    # ------------------------------------------------------------------
+    # 5. Fooocus Expansion (from lllyasviel/misc)
+    # ------------------------------------------------------------------
+    print("\n[5/5] Downloading Fooocus Expansion model...")
+    expansion_dir = models_dir / "prompt_expansion" / "fooocus_expansion"
+    expansion_dir.mkdir(parents=True, exist_ok=True)
+    
+    expansion_files = [
+        "config.json",
+        "pytorch_model.bin",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+        "vocab.json"
+    ]
+    
+    for filename in expansion_files:
+        print(f"   Downloading {filename}...")
+        hf_hub_download(
+            repo_id="lllyasviel/misc",
+            filename=f"fooocus_expansion/{filename}",
+            local_dir=models_dir,
+            local_dir_use_symlinks=False
+        )
+        
+        # Move from downloaded structure to simple structure
+        source_path = models_dir / "fooocus_expansion" / filename
+        if source_path.exists():
+            shutil.move(str(source_path), str(expansion_dir / filename))
+
+    if (models_dir / "fooocus_expansion").exists():
+        shutil.rmtree(models_dir / "fooocus_expansion")
+
+    print(f"✓ Downloaded to: {expansion_dir}")
 
     print("\n" + "="*50)
     print("ALL DOWNLOADS COMPLETE")

@@ -1,20 +1,20 @@
 {
     "path_checkpoints": [
-        "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\checkpoints"
+        "Fooocus/models/checkpoints"
     ],
     "path_loras": [
-        "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\loras"
+        "Fooocus/models/loras"
     ],
-    "path_embeddings": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\embeddings",
-    "path_vae_approx": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\vae_approx",
-    "path_vae": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\vae",
-    "path_upscale_models": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\upscale_models",
-    "path_inpaint": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\inpaint",
-    "path_controlnet": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\controlnet",
-    "path_clip_vision": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\clip_vision",
-    "path_fooocus_expansion": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\prompt_expansion\\fooocus_expansion",
-    "path_wildcards": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\wildcards",
-    "path_safety_checker": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\safety_checker",
-    "path_sam": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\models\\sam",
-    "path_outputs": "D:\\Fooocus_win64_2-5-0 - Copy\\Fooocus\\outputs"
+    "path_embeddings": "Fooocus/models/embeddings",
+    "path_vae_approx": "Fooocus/models/vae_approx",
+    "path_vae": "Fooocus/models/vae",
+    "path_upscale_models": "Fooocus/models/upscale_models",
+    "path_inpaint": "Fooocus/models/inpaint",
+    "path_controlnet": "Fooocus/models/controlnet",
+    "path_clip_vision": "Fooocus/models/clip_vision",
+    "path_fooocus_expansion": "Fooocus/models/prompt_expansion/fooocus_expansion",
+    "path_wildcards": "Fooocus/wildcards",
+    "path_safety_checker": "Fooocus/models/safety_checker",
+    "path_sam": "Fooocus/models/sam",
+    "path_outputs": "Fooocus/outputs"
 }
