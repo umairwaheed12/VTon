@@ -1073,6 +1073,18 @@ class ShoulderHeightDressWarper:
         return self.warp(scaled_dress, scaled_c_pose, p_pose, person_shape)
 
     # ---------------- MAIN PIPELINE ----------------
+    def resize_with_max_dim(self, image, max_dim=1280):
+        h, w = image.shape[:2]
+        if max(h, w) <= max_dim:
+            return image
+        if h > w:
+            new_h = max_dim
+            new_w = int(w * (max_dim / h))
+        else:
+            new_w = max_dim
+            new_h = int(h * (max_dim / w))
+        return cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+
     def process(self, person_input, cloth_input, out_path_final=None):
         """
         Main processing function.
@@ -1104,6 +1116,12 @@ class ShoulderHeightDressWarper:
         else:
             # Assume numpy array
             cloth = cloth_input.copy()
+        
+        # SMART RESIZE: Performance optimization for high-res images
+        print(f"I/O: Original shapes - Person: {person.shape[:2]}, Cloth: {cloth.shape[:2]}")
+        person = self.resize_with_max_dim(person, 1280)
+        cloth = self.resize_with_max_dim(cloth, 1280)
+        print(f"I/O: Processed shapes - Person: {person.shape[:2]}, Cloth: {cloth.shape[:2]}")
         
         p_pose = self.get_pose(person)
         c_pose = self.get_pose(cloth)

@@ -634,8 +634,9 @@ class ClothMasker:
         
         return result
     
-    def process(self, input_image_path, output_path, border_thickness=20, 
-                overlay_color=(100, 140, 255), alpha=0.5, warp_mask_path=None, generate_v3=True):
+    def process(self, input_image_path=None, output_path=None, border_thickness=20, 
+                overlay_color=(100, 140, 255), alpha=0.5, warp_mask_path=None, generate_v3=True,
+                image=None):
         """
         Main processing pipeline: Load image -> Segment cloth -> Create thick border -> Apply overlay
         
@@ -646,16 +647,23 @@ class ClothMasker:
             overlay_color: BGR color for overlay (default: coral/pink)
             alpha: Overlay transparency (default: 0.5)
             warp_mask_path: Optional path to _MASK.png from robust_cloth_warp.py
+            image: Optional numpy array (BGR). If provided, input_image_path is ignored.
         """
         print(f"\n{'='*60}")
-        print(f"Processing: {input_image_path}")
+        if input_image_path:
+            print(f"Processing: {input_image_path}")
+        else:
+            print("Processing image from memory...")
         print(f"{'='*60}")
         
         # Load image
-        image = cv2.imread(str(input_image_path))
         if image is None:
-            print(f"[ERROR] Failed to load image: {input_image_path}")
-            return
+            image = cv2.imread(str(input_image_path))
+            if image is None:
+                print(f"[ERROR] Failed to load image: {input_image_path}")
+                return None
+        else:
+            image = image.copy()
         
         h, w = image.shape[:2]
         print(f"[OK] Image loaded: {w}x{h}")
@@ -769,13 +777,14 @@ class ClothMasker:
         result = self.apply_overlay(image, combined_mask, overlay_color, alpha)
         
         # Save result
-        cv2.imwrite(str(output_path), result)
-        print(f"[SAVED] Masked result: {output_path}")
+        if output_path:
+            cv2.imwrite(str(output_path), result)
+            print(f"[SAVED] Masked result: {output_path}")
         
         # Also save just the mask for reference
         from pathlib import Path
-        output_p = Path(output_path)
-        mask_only_path = str(output_p.parent / (output_p.stem + '_mask' + output_p.suffix))
+        output_p = Path(output_path) if output_path else None
+        mask_only_path = str(output_p.parent / (output_p.stem + '_mask' + output_p.suffix)) if output_p else None
         
         # Prepare the mask to save: cloth border + warp mask + bottom filling + ARMS/HANDS
         mask_to_save = border_mask.copy()
@@ -830,11 +839,12 @@ class ClothMasker:
         mask_to_save[face_hair_protection > 0] = 0
         print(f"   - Face and hair areas excluded from saved mask")
         
-        cv2.imwrite(mask_only_path, mask_to_save)
-        print(f"[SAVED] Mask (with robust_cloth_warp mask included): {mask_only_path}")
+        if mask_only_path:
+            cv2.imwrite(mask_only_path, mask_to_save)
+            print(f"[SAVED] Mask (with robust_cloth_warp mask included): {mask_only_path}")
         
         # Save LIP segmentation visualization
-        if hasattr(self, 'seg_visualization'):
+        if hasattr(self, 'seg_visualization') and output_p:
             seg_vis_path = str(output_p.parent / (output_p.stem + '_lip_seg' + output_p.suffix))
             cv2.imwrite(seg_vis_path, self.seg_visualization)
             print(f"[SAVED] LIP segmentation visualization: {seg_vis_path}")
@@ -882,26 +892,29 @@ class ClothMasker:
         mask_v2[face_hair_protection > 0] = 0
         
         # 8. Save the second mask
-        mask_v2_path = str(output_p.parent / (output_p.stem + '_mask_v2' + output_p.suffix))
-        cv2.imwrite(mask_v2_path, mask_v2)
-        print(f"[SAVED] Second mask (full body/clothes): {mask_v2_path}")
+        if output_p:
+            mask_v2_path = str(output_p.parent / (output_p.stem + '_mask_v2' + output_p.suffix))
+            cv2.imwrite(mask_v2_path, mask_v2)
+            print(f"[SAVED] Second mask (full body/clothes): {mask_v2_path}")
         
         # Save MediaPipe arms/hands visualization
-        if hasattr(self, 'mp_arms_hands_visualization'):
+        if hasattr(self, 'mp_arms_hands_visualization') and output_p:
             mp_arms_path = str(output_p.parent / (output_p.stem + '_mp_arms_hands' + output_p.suffix))
             cv2.imwrite(mp_arms_path, self.mp_arms_hands_visualization)
             print(f"[SAVED] MediaPipe arms/hands segmentation: {mp_arms_path}")
             print("  (White=Arms and Hands from MediaPipe)")
         
         # Save MediaPipe legs visualization
-        if hasattr(self, 'mp_legs_visualization'):
+        if hasattr(self, 'mp_legs_visualization') and output_p:
             mp_legs_path = str(output_p.parent / (output_p.stem + '_mp_legs' + output_p.suffix))
             cv2.imwrite(mp_legs_path, self.mp_legs_visualization)
             print(f"[SAVED] MediaPipe legs segmentation: {mp_legs_path}")
             print("  (White=Legs and Feet from MediaPipe)")
         
         # --- GENERATE THIRD MASK (v3) ---
+        mask_v3 = None
         if generate_v3:
+            print(">> Generating Mask V3 (Strict Anatomy)...")
             # Body parts (hands, legs, feet, shoes) using SAM
             print(f">> Generating third mask (v3) with SAM body parts (Strictly excluding cloth)...")
             
@@ -974,11 +987,13 @@ class ClothMasker:
             mask_v3[protection_v3 > 0] = 0
             
             # 6. Save the third mask
-            mask_v3_path = str(output_p.parent / (output_p.stem + '_mask_v3' + output_p.suffix))
-            cv2.imwrite(mask_v3_path, mask_v3)
-            print(f"[SAVED] Third mask (Strict Anatomy Only): {mask_v3_path}")
+            if output_p:
+                mask_v3_path = str(output_p.parent / (output_p.stem + '_mask_v3' + output_p.suffix))
+                cv2.imwrite(mask_v3_path, mask_v3)
+                print(f"[SAVED] Third mask (Strict Anatomy Only): {mask_v3_path}")
         
         print(f"{'='*60}\n")
+        return result, mask_to_save, mask_v3
 
 
 # ============== MAIN ==============

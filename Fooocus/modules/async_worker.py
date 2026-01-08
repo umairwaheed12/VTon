@@ -7,6 +7,11 @@ import modules.config
 patch_all()
 
 
+# Global cache for VTON models to prevent re-loading on every task
+vton_warper_instance = None
+vton_masker_instance = None
+vton_lock = threading.Lock()
+
 class AsyncTask:
     def __init__(self, args):
         from modules.flags import Performance, MetadataScheme, ip_list, disabled
@@ -903,30 +908,30 @@ def worker():
                     saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
                     onnx_model_path = os.path.join(base_dir, 'models', 'humanparsing', 'parsing_lip.onnx')
                     
-                    # Initialize warper and masker
-                    progressbar(async_task, 1, 'Loading Virtual Try-On models...')
-                    warper = ShoulderHeightDressWarper(
-                        seg_model_path=seg_model_path,
-                        saree_model_path=saree_model_path
-                    )
-                    masker = ClothMasker(
-                        model_path=saree_model_path,
-                        onnx_model_path=onnx_model_path,
-                        b2_onnx_path=seg_model_path
-                    )
+                    # Initialize warper and masker (Use Global Cache)
+                    global vton_warper_instance, vton_masker_instance
+                    
+                    with vton_lock:
+                        if vton_warper_instance is None:
+                            progressbar(async_task, 1, 'Loading Virtual Try-On models (First Time)...')
+                            vton_warper_instance = ShoulderHeightDressWarper(
+                                seg_model_path=seg_model_path,
+                                saree_model_path=saree_model_path
+                            )
+                        if vton_masker_instance is None:
+                            vton_masker_instance = ClothMasker(
+                                model_path=saree_model_path,
+                                onnx_model_path=onnx_model_path,
+                                b2_onnx_path=seg_model_path
+                            )
+                    
+                    warper = vton_warper_instance
+                    masker = vton_masker_instance
 
                     # Store paths for Sage 4 refinement
                     async_task.masking_seg_model_path = seg_model_path
                     async_task.masking_saree_model_path = saree_model_path
                     async_task.masking_onnx_model_path = onnx_model_path
-                    
-                    # Create temporary directory for processing
-                    temp_dir = tempfile.mkdtemp(prefix='fooocus_vton_')
-                    
-                    # Save person image to temp file (BGR format for dresss.py)
-                    person_path = os.path.join(temp_dir, 'input_person.png')
-                    person_bgr = cv2.cvtColor(inpaint_image, cv2.COLOR_RGB2BGR) if inpaint_image.shape[2] == 3 else inpaint_image
-                    cv2.imwrite(person_path, person_bgr)
                     
                     # Handle cloth image - could be numpy array or dict
                     if isinstance(async_task.cloth_input_image, dict):
@@ -934,68 +939,38 @@ def worker():
                     else:
                         cloth_image = async_task.cloth_input_image
                     
-                    # Save cloth image to temp file (BGR format for dresss.py)
-                    cloth_path = os.path.join(temp_dir, 'input_cloth.png')
-                    if isinstance(cloth_image, np.ndarray):
-                        cloth_bgr = cv2.cvtColor(cloth_image, cv2.COLOR_RGB2BGR) if cloth_image.shape[2] == 3 else cloth_image
-                    else:
-                        cloth_bgr = cloth_image
-                    cv2.imwrite(cloth_path, cloth_bgr)
-                    
+                    # Convert to BGR for VTON modules
+                    person_bgr = cv2.cvtColor(inpaint_image, cv2.COLOR_RGB2BGR) if inpaint_image.shape[2] == 3 else inpaint_image
+                    cloth_bgr = cv2.cvtColor(cloth_image, cv2.COLOR_RGB2BGR) if cloth_image.shape[2] == 3 else cloth_image
+
                     # Step 1: Run dresss.py (warping)
-                    progressbar(async_task, 1, 'Warping cloth onto person (dresss.py)...')
-                    dress_output_path = os.path.join(temp_dir, 'result_dress.png')
-                    warper.process(person_path, cloth_path, dress_output_path)
+                    progressbar(async_task, 1, 'Warping cloth onto person (In-Memory)...')
+                    # dresss.py returns: (final_result, visualization_mask, warp_mask)
+                    dress_result_bgr, visualization_mask, warp_mask = warper.process(person_bgr, cloth_bgr)
                     
-                    # dresss.py saves: result_dress.png and result_dress_MASK.png
-                    dress_mask_path = os.path.join(temp_dir, 'result_dress_MASK.png')
-                    if not os.path.exists(dress_output_path):
-                        raise FileNotFoundError("Dress warping failed to produce output")
-                    if not os.path.exists(dress_mask_path):
-                        print("[Virtual Try-On] Warning: Dress mask not found, proceeding without it")
-                        dress_mask_path = None
-                    
+                    if dress_result_bgr is None:
+                        raise ValueError("Dress warping failed (Zero-IO)")
+
                     # Step 2: Run masking.py
-                    progressbar(async_task, 1, 'Generating final mask (masking.py)...')
-                    masking_output_path = os.path.join(temp_dir, 'result_masking.png')
-                    masker.process(
-                        input_image_path=dress_output_path,
-                        output_path=masking_output_path,
+                    progressbar(async_task, 1, 'Generating final mask (In-Memory)...')
+                    # masker.process returns: (result, mask_to_save, mask_v3)
+                    masking_result_bgr, final_mask_img, mask_v3 = masker.process(
+                        image=dress_result_bgr,
+                        output_path=None,  # No disk IO
                         border_thickness=15,
                         overlay_color=(0, 0, 255),
                         alpha=0.5,
-                        warp_mask_path=dress_mask_path,
+                        warp_mask=warp_mask,
                         generate_v3=False
                     )
                     
-                    # masking.py saves: result_masking.png, result_masking_mask.png, and result_masking_mask_v2.png
-                    final_mask_path = os.path.join(temp_dir, 'result_masking_mask.png')
-                    final_mask_v2_path = os.path.join(temp_dir, 'result_masking_mask_v2.png')
-                    # (Gray Blob fix removed...)
-                    # Fix Gray Blob / Messy Output (Essential for Second Pass)
-                    # When Strength < 1.0, default inpaint blurs the mask. We must force it to use the actual image pixels.
-                    # This block seems to be out of context here, it refers to `stage_d_inpaint_strength` which is not defined in this scope.
-                    # Assuming this was intended for a different part of the code related to inpainting stages.
-                    # If this is meant to be part of the virtual try-on logic, the variables need to be defined or passed.
-                    # For now, inserting as is, but noting potential scope issues.
-                    # if stage_d_inpaint_strength < 1.0:
-                    #      print("[Stage D] Fix: Overriding initial latent with actual image content (Prevents Gray Blur)...")
-                    #      stage_d_pixels = core.numpy_to_pytorch(inpaint_worker.current_task.interested_image)
-                    #      stage_d_vae, _ = pipeline.get_candidate_vae(steps=async_task.steps, switch=switch, denoise=stage_d_denoising_strength, refiner_swap_method=async_task.refiner_swap_method)
-                    #      stage_d_initial_latent = core.encode_vae(vae=stage_d_vae, pixels=pixels)
+                    # Store data for possible Stage 4 refinement
+                    async_task.masking_mask_v2_path = None # Will use in-memory instead
+                    async_task.masking_latest_v2 = final_mask_img
+                    async_task.masking_latest_v3 = mask_v3
                     
-                    # Load the dress result image (this becomes the inpaint input)
-                    dress_result = cv2.imread(dress_output_path)
-                    if dress_result is None:
-                        raise FileNotFoundError("Could not load dress result image")
-                    dress_result_rgb = cv2.cvtColor(dress_result, cv2.COLOR_BGR2RGB)
-                    
-                    # Load the final mask (this becomes the advanced masking mask)
-                    if os.path.exists(final_mask_path):
-                        final_mask_img = cv2.imread(final_mask_path, cv2.IMREAD_GRAYSCALE)
-                        if final_mask_img is None:
-                            raise FileNotFoundError("Could not load final mask image")
-                        
+                    dress_result_rgb = cv2.cvtColor(dress_result_bgr, cv2.COLOR_BGR2RGB)
+                    if final_mask_img is not None:
                         # Resize mask to match image dimensions if needed
                         if final_mask_img.shape[:2] != dress_result_rgb.shape[:2]:
                             final_mask_img = cv2.resize(final_mask_img, (dress_result_rgb.shape[1], dress_result_rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -1010,21 +985,12 @@ def worker():
                             'mask': np.stack([inpaint_mask, inpaint_mask, inpaint_mask], axis=2)
                         }
                         
-                        # Store masking.py results for later use in Improve Detail pass
-                        async_task.masking_mask_path = final_mask_path
-                        async_task.masking_mask_v2_path = final_mask_v2_path
-                        async_task.masking_temp_dir = temp_dir
+                        # Store results for later use in Improve Detail pass
                         async_task.use_masking_improve_detail = True
-                        
-                        # Mark virtual try-on as successful
                         virtual_tryon_success = True
-                        progressbar(async_task, 1, 'Virtual Try-On complete, proceeding with inpainting...')
-                        
-                        # Cleanup temp files (optional, can keep for debugging)
-                        # shutil.rmtree(temp_dir, ignore_errors=True)
+                        progressbar(async_task, 1, 'Virtual Try-On preprocessing complete (Zero-IO)')
                     else:
-                        raise FileNotFoundError(f"Final mask file not found at {final_mask_path}")
-                        
+                        raise ValueError("Final mask generation failed (Zero-IO)")
                 except Exception as e:
                     print(f"[Virtual Try-On] Error: {e}")
                     import traceback
@@ -1513,50 +1479,50 @@ def worker():
             # Take the result from Stage C
             inpaint_result_img = images_to_enhance[0]
             
-            # Get the mask for Stage D (Prioritize Mask V3 regeneration on result)
+            # Get the mask for Stage D (Prioritize In-Memory Mask V3)
             if hasattr(async_task, 'use_masking_improve_detail') and async_task.use_masking_improve_detail:
                 print(f'[Auto Enhance] Regenerating Mask V3 on Stage 3 result for Stage 4 refinement...')
                 try:
-                    import cv2
-                    from modules.virtual_tryon import ClothMasker
+                    global vton_masker_instance
                     
-                    # 1. Save Stage 3 result image to temp directory
-                    temp_dir = async_task.masking_temp_dir
-                    stage3_img_path = os.path.join(temp_dir, 'result_stage3.png')
-                    # HWC3 ensures image is in correct format (numpy RGB)
-                    stage3_bgr = cv2.cvtColor(inpaint_result_img, cv2.COLOR_RGB2BGR)
-                    cv2.imwrite(stage3_img_path, stage3_bgr)
+                    # Ensure masker is loaded
+                    if vton_masker_instance is None:
+                        with vton_lock:
+                            vton_masker_instance = ClothMasker(
+                                model_path=async_task.masking_saree_model_path,
+                                onnx_model_path=async_task.masking_onnx_model_path,
+                                b2_onnx_path=async_task.masking_seg_model_path
+                            )
                     
-                    # 2. Re-initialize masker with stored paths
-                    masker = ClothMasker(
-                        model_path=async_task.masking_saree_model_path,
-                        onnx_model_path=async_task.masking_onnx_model_path,
-                        b2_onnx_path=async_task.masking_seg_model_path
+                    masker = vton_masker_instance
+                    
+                    # Convert result to BGR for masker
+                    inpaint_result_bgr = cv2.cvtColor(inpaint_result_img, cv2.COLOR_RGB2BGR)
+                    
+                    # Process to get fresh mask_v3 in-memory
+                    # masker.process returns: (result, mask_to_save, mask_v3)
+                    _, _, fresh_mask_v3 = masker.process(
+                        image=inpaint_result_bgr,
+                        output_path=None,
+                        border_thickness=3,
+                        generate_v3=True
                     )
                     
-                    # 3. Process to get fresh mask_v3
-                    masking_output_path = os.path.join(temp_dir, 'result_stage4.png')
-                    masker.process(
-                        input_image_path=stage3_img_path,
-                        output_path=masking_output_path,
-                        border_thickness=3
-                    )
-                    
-                    # 4. Load the refined mask_v3
-                    final_mask_v3_path = os.path.join(temp_dir, 'result_stage4_mask_v3.png')
-                    if os.path.exists(final_mask_v3_path):
-                        print(f'[Auto Enhance] Using refined Stage 4 Mask V3: {final_mask_v3_path}')
-                        improve_detail_mask = cv2.imread(final_mask_v3_path, cv2.IMREAD_GRAYSCALE)
+                    if fresh_mask_v3 is not None:
+                        print(f'[Auto Enhance] Using refined In-Memory Stage 4 Mask V3')
+                        improve_detail_mask = fresh_mask_v3
+                    elif hasattr(async_task, 'masking_latest_v2'):
+                        print(f'[Auto Enhance] Falling back to In-Memory Mask V2')
+                        improve_detail_mask = async_task.masking_latest_v2
                     else:
-                        print(f'[Auto Enhance] Warning: Refined mask_v3 not found at {final_mask_v3_path}, falling back to V2')
-                        improve_detail_mask = cv2.imread(async_task.masking_mask_v2_path, cv2.IMREAD_GRAYSCALE)
+                        print(f'[Auto Enhance] Warning: No refined mask found, falling back to basic mask')
+                        improve_detail_mask = inpaint_worker.current_task.mask.copy()
                 except Exception as e:
                     print(f'[Auto Enhance] Error regenerating mask: {e}')
-                    improve_detail_mask = cv2.imread(async_task.masking_mask_v2_path, cv2.IMREAD_GRAYSCALE)
-            elif hasattr(async_task, 'masking_mask_v2_path') and os.path.exists(async_task.masking_mask_v2_path):
-                print(f'[Auto Enhance] Using existing Mask V2 for refinement: {async_task.masking_mask_v2_path}')
-                import cv2
-                improve_detail_mask = cv2.imread(async_task.masking_mask_v2_path, cv2.IMREAD_GRAYSCALE)
+                    improve_detail_mask = getattr(async_task, 'masking_latest_v2', inpaint_worker.current_task.mask.copy())
+            elif hasattr(async_task, 'masking_latest_v2'):
+                print(f'[Auto Enhance] Using existing In-Memory Mask V2 for refinement')
+                improve_detail_mask = async_task.masking_latest_v2
             else:
                 improve_detail_mask = inpaint_worker.current_task.mask.copy()
             
