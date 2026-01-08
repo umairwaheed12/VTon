@@ -7,6 +7,11 @@ import modules.config
 patch_all()
 
 
+# Global cache for VTON models to prevent re-loading on every task
+vton_warper_instance = None
+vton_masker_instance = None
+vton_lock = threading.Lock()
+
 class AsyncTask:
     def __init__(self, args):
         from modules.flags import Performance, MetadataScheme, ip_list, disabled
@@ -903,17 +908,25 @@ def worker():
                     saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
                     onnx_model_path = os.path.join(base_dir, 'models', 'humanparsing', 'parsing_lip.onnx')
                     
-                    # Initialize warper and masker
-                    progressbar(async_task, 1, 'Loading Virtual Try-On models...')
-                    warper = ShoulderHeightDressWarper(
-                        seg_model_path=seg_model_path,
-                        saree_model_path=saree_model_path
-                    )
-                    masker = ClothMasker(
-                        model_path=saree_model_path,
-                        onnx_model_path=onnx_model_path,
-                        b2_onnx_path=seg_model_path
-                    )
+                    # Initialize warper and masker (Use Global Cache to avoid reloading)
+                    global vton_warper_instance, vton_masker_instance
+                    
+                    with vton_lock:
+                        if vton_warper_instance is None:
+                            progressbar(async_task, 1, 'Loading Virtual Try-On models (First Time)...')
+                            vton_warper_instance = ShoulderHeightDressWarper(
+                                seg_model_path=seg_model_path,
+                                saree_model_path=saree_model_path
+                            )
+                        if vton_masker_instance is None:
+                            vton_masker_instance = ClothMasker(
+                                model_path=saree_model_path,
+                                onnx_model_path=onnx_model_path,
+                                b2_onnx_path=seg_model_path
+                            )
+                    
+                    warper = vton_warper_instance
+                    masker = vton_masker_instance
 
                     # Store paths for Sage 4 refinement
                     async_task.masking_seg_model_path = seg_model_path
@@ -1527,12 +1540,17 @@ def worker():
                     stage3_bgr = cv2.cvtColor(inpaint_result_img, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(stage3_img_path, stage3_bgr)
                     
-                    # 2. Re-initialize masker with stored paths
-                    masker = ClothMasker(
-                        model_path=async_task.masking_saree_model_path,
-                        onnx_model_path=async_task.masking_onnx_model_path,
-                        b2_onnx_path=async_task.masking_seg_model_path
-                    )
+                    # 2. Re-initialize masker with stored paths (Use Global Cache)
+                    global vton_masker_instance
+                    if vton_masker_instance is None:
+                        with vton_lock:
+                            vton_masker_instance = ClothMasker(
+                                model_path=async_task.masking_saree_model_path,
+                                onnx_model_path=async_task.masking_onnx_model_path,
+                                b2_onnx_path=async_task.masking_seg_model_path
+                            )
+                    
+                    masker = vton_masker_instance
                     
                     # 3. Process to get fresh mask_v3
                     masking_output_path = os.path.join(temp_dir, 'result_stage4.png')
