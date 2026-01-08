@@ -196,6 +196,30 @@ def download_models():
 
     print(f"✓ Downloaded to: {expansion_dir}")
 
+    # ------------------------------------------------------------------
+    # 6. LoRAs
+    # ------------------------------------------------------------------
+    print("\n[6/6] Downloading LoRAs...")
+    loras_dir = models_dir / "loras"
+    loras_dir.mkdir(parents=True, exist_ok=True)
+    
+    # BetterThanWords-merged-SDXL-LoRA-v3
+    btw_lora_path = loras_dir / "BetterThanWords-merged-SDXL-LoRA-v3.safetensors"
+    if not btw_lora_path.exists():
+        print("   Downloading BetterThanWords-merged-SDXL-LoRA-v3.safetensors...")
+        try:
+             # Try via HF Hub first if it was a single file repo, but since it's a specific file in a repo:
+             hf_hub_download(
+                repo_id="AiWise/BetterThanWords-merged-SDXL-LoRA-v3",
+                filename="BetterThanWords-merged-SDXL-LoRA-v3.safetensors",
+                local_dir=loras_dir,
+                local_dir_use_symlinks=False
+             )
+             print("   ✓ Downloaded BetterThanWords LoRA.")
+        except Exception as e:
+            print(f"   ⚠ Failed to download LoRA via API: {e}")
+            # Fallback or just let it be (user might need to upload manual if it fails)
+
     print("\n" + "="*50)
     print("ALL DOWNLOADS COMPLETE")
     print("="*50)
