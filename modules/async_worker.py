@@ -55,6 +55,8 @@ class AsyncTask:
         self.inpaint_input_image = args.pop()
         self.inpaint_additional_prompt = args.pop()
         self.inpaint_mask_image_upload = args.pop()
+        self.cloth_input_image = args.pop()
+        self.enable_virtual_tryon = True # Always ON
 
         self.disable_preview = args.pop()
         self.disable_intermediate_results = args.pop()
@@ -92,7 +94,8 @@ class AsyncTask:
         self.inpaint_engine = args.pop()
         self.inpaint_strength = args.pop()
         self.inpaint_respective_field = args.pop()
-        self.inpaint_advanced_masking_checkbox = args.pop()
+        # Advanced masking checkbox removed - always enabled (mask generation column always visible)
+        self.inpaint_advanced_masking_checkbox = True
         self.invert_mask_checkbox = args.pop()
         self.inpaint_erode_or_dilate = args.pop()
         self.save_final_enhanced_image_only = args.pop() if not args_manager.args.disable_image_log else False
@@ -865,7 +868,172 @@ def worker():
             inpaint_image = async_task.inpaint_input_image['image']
             inpaint_mask = async_task.inpaint_input_image['mask'][:, :, 0]
 
-            if async_task.inpaint_advanced_masking_checkbox:
+            # Track if virtual try-on was successful (to skip advanced masking)
+            virtual_tryon_success = False
+            # Initialize masking.py attributes
+            if not hasattr(async_task, 'use_masking_improve_detail'):
+                async_task.use_masking_improve_detail = False
+
+            # Virtual Try-On preprocessing
+            if async_task.enable_virtual_tryon and async_task.cloth_input_image is not None:
+                try:
+                    import cv2
+                    import numpy as np
+                    from modules.virtual_tryon import ShoulderHeightDressWarper, ClothMasker
+                    import os
+                    import tempfile
+                    from pathlib import Path
+                    
+                    # Check if cloth image is valid
+                    cloth_is_valid = False
+                    if isinstance(async_task.cloth_input_image, np.ndarray):
+                        cloth_is_valid = True
+                    elif isinstance(async_task.cloth_input_image, dict) and 'image' in async_task.cloth_input_image:
+                        cloth_is_valid = True
+                    
+                    if not cloth_is_valid:
+                        print("[Virtual Try-On] Invalid cloth image format, skipping virtual try-on")
+                        raise ValueError("Invalid cloth image")
+                    
+                    progressbar(async_task, 1, 'Processing Virtual Try-On...')
+                    
+                    # Get model paths
+                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    seg_model_path = os.path.join(base_dir, 'models', 'segformer_b2_clothes.onnx')
+                    saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
+                    onnx_model_path = os.path.join(base_dir, 'models', 'humanparsing', 'parsing_lip.onnx')
+                    
+                    # Initialize warper and masker
+                    progressbar(async_task, 1, 'Loading Virtual Try-On models...')
+                    warper = ShoulderHeightDressWarper(
+                        seg_model_path=seg_model_path,
+                        saree_model_path=saree_model_path
+                    )
+                    masker = ClothMasker(
+                        model_path=saree_model_path,
+                        onnx_model_path=onnx_model_path,
+                        b2_onnx_path=seg_model_path
+                    )
+
+                    # Store paths for Sage 4 refinement
+                    async_task.masking_seg_model_path = seg_model_path
+                    async_task.masking_saree_model_path = saree_model_path
+                    async_task.masking_onnx_model_path = onnx_model_path
+                    
+                    # Create temporary directory for processing
+                    temp_dir = tempfile.mkdtemp(prefix='fooocus_vton_')
+                    
+                    # Save person image to temp file (BGR format for dresss.py)
+                    person_path = os.path.join(temp_dir, 'input_person.png')
+                    person_bgr = cv2.cvtColor(inpaint_image, cv2.COLOR_RGB2BGR) if inpaint_image.shape[2] == 3 else inpaint_image
+                    cv2.imwrite(person_path, person_bgr)
+                    
+                    # Handle cloth image - could be numpy array or dict
+                    if isinstance(async_task.cloth_input_image, dict):
+                        cloth_image = async_task.cloth_input_image.get('image', async_task.cloth_input_image)
+                    else:
+                        cloth_image = async_task.cloth_input_image
+                    
+                    # Save cloth image to temp file (BGR format for dresss.py)
+                    cloth_path = os.path.join(temp_dir, 'input_cloth.png')
+                    if isinstance(cloth_image, np.ndarray):
+                        cloth_bgr = cv2.cvtColor(cloth_image, cv2.COLOR_RGB2BGR) if cloth_image.shape[2] == 3 else cloth_image
+                    else:
+                        cloth_bgr = cloth_image
+                    cv2.imwrite(cloth_path, cloth_bgr)
+                    
+                    # Step 1: Run dresss.py (warping)
+                    progressbar(async_task, 1, 'Warping cloth onto person (dresss.py)...')
+                    dress_output_path = os.path.join(temp_dir, 'result_dress.png')
+                    warper.process(person_path, cloth_path, dress_output_path)
+                    
+                    # dresss.py saves: result_dress.png and result_dress_MASK.png
+                    dress_mask_path = os.path.join(temp_dir, 'result_dress_MASK.png')
+                    if not os.path.exists(dress_output_path):
+                        raise FileNotFoundError("Dress warping failed to produce output")
+                    if not os.path.exists(dress_mask_path):
+                        print("[Virtual Try-On] Warning: Dress mask not found, proceeding without it")
+                        dress_mask_path = None
+                    
+                    # Step 2: Run masking.py
+                    progressbar(async_task, 1, 'Generating final mask (masking.py)...')
+                    masking_output_path = os.path.join(temp_dir, 'result_masking.png')
+                    masker.process(
+                        input_image_path=dress_output_path,
+                        output_path=masking_output_path,
+                        border_thickness=15,
+                        overlay_color=(0, 0, 255),
+                        alpha=0.5,
+                        warp_mask_path=dress_mask_path,
+                        generate_v3=False
+                    )
+                    
+                    # masking.py saves: result_masking.png, result_masking_mask.png, and result_masking_mask_v2.png
+                    final_mask_path = os.path.join(temp_dir, 'result_masking_mask.png')
+                    final_mask_v2_path = os.path.join(temp_dir, 'result_masking_mask_v2.png')
+                    # (Gray Blob fix removed...)
+                    # Fix Gray Blob / Messy Output (Essential for Second Pass)
+                    # When Strength < 1.0, default inpaint blurs the mask. We must force it to use the actual image pixels.
+                    # This block seems to be out of context here, it refers to `stage_d_inpaint_strength` which is not defined in this scope.
+                    # Assuming this was intended for a different part of the code related to inpainting stages.
+                    # If this is meant to be part of the virtual try-on logic, the variables need to be defined or passed.
+                    # For now, inserting as is, but noting potential scope issues.
+                    # if stage_d_inpaint_strength < 1.0:
+                    #      print("[Stage D] Fix: Overriding initial latent with actual image content (Prevents Gray Blur)...")
+                    #      stage_d_pixels = core.numpy_to_pytorch(inpaint_worker.current_task.interested_image)
+                    #      stage_d_vae, _ = pipeline.get_candidate_vae(steps=async_task.steps, switch=switch, denoise=stage_d_denoising_strength, refiner_swap_method=async_task.refiner_swap_method)
+                    #      stage_d_initial_latent = core.encode_vae(vae=stage_d_vae, pixels=pixels)
+                    
+                    # Load the dress result image (this becomes the inpaint input)
+                    dress_result = cv2.imread(dress_output_path)
+                    if dress_result is None:
+                        raise FileNotFoundError("Could not load dress result image")
+                    dress_result_rgb = cv2.cvtColor(dress_result, cv2.COLOR_BGR2RGB)
+                    
+                    # Load the final mask (this becomes the advanced masking mask)
+                    if os.path.exists(final_mask_path):
+                        final_mask_img = cv2.imread(final_mask_path, cv2.IMREAD_GRAYSCALE)
+                        if final_mask_img is None:
+                            raise FileNotFoundError("Could not load final mask image")
+                        
+                        # Resize mask to match image dimensions if needed
+                        if final_mask_img.shape[:2] != dress_result_rgb.shape[:2]:
+                            final_mask_img = cv2.resize(final_mask_img, (dress_result_rgb.shape[1], dress_result_rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
+                        
+                        # Replace inputs for inpainting
+                        inpaint_image = dress_result_rgb
+                        inpaint_mask = final_mask_img
+                        
+                        # Update the inpaint_input_image dict
+                        async_task.inpaint_input_image = {
+                            'image': inpaint_image,
+                            'mask': np.stack([inpaint_mask, inpaint_mask, inpaint_mask], axis=2)
+                        }
+                        
+                        # Store masking.py results for later use in Improve Detail pass
+                        async_task.masking_mask_path = final_mask_path
+                        async_task.masking_mask_v2_path = final_mask_v2_path
+                        async_task.masking_temp_dir = temp_dir
+                        async_task.use_masking_improve_detail = True
+                        
+                        # Mark virtual try-on as successful
+                        virtual_tryon_success = True
+                        progressbar(async_task, 1, 'Virtual Try-On complete, proceeding with inpainting...')
+                        
+                        # Cleanup temp files (optional, can keep for debugging)
+                        # shutil.rmtree(temp_dir, ignore_errors=True)
+                    else:
+                        raise FileNotFoundError(f"Final mask file not found at {final_mask_path}")
+                        
+                except Exception as e:
+                    print(f"[Virtual Try-On] Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    print("[Virtual Try-On] Falling back to standard inpainting")
+                    virtual_tryon_success = False
+
+            # Skip advanced masking if virtual try-on was successful (we already have the final mask)
+            if async_task.inpaint_advanced_masking_checkbox and not virtual_tryon_success:
                 if isinstance(async_task.inpaint_mask_image_upload, dict):
                     if (isinstance(async_task.inpaint_mask_image_upload['image'], np.ndarray)
                             and isinstance(async_task.inpaint_mask_image_upload['mask'], np.ndarray)
@@ -1017,6 +1185,22 @@ def worker():
                 inpaint_parameterized, inpaint_strength,
                 inpaint_respective_field, switch, inpaint_disable_initial_latent,
                 current_progress, True)
+
+            # FIX: Latent Override for Low Strength (Refinement Mode)
+            # This ensures that when denoising strength < 1.0, we start with the original image pixels
+            # instead of a blurred/filled background, fixing the "mask becomes background" issue.
+            if denoising_strength < 1.0 and not inpaint_disable_initial_latent:
+                print("[Enhance Fix] Overriding initial latent with actual image content...")
+                # inpaint_worker.current_task is globally updated by apply_inpaint
+                # so we can directly access the correctly cropped/padded interested_image
+                pixels = core.numpy_to_pytorch(inpaint_worker.current_task.interested_image)
+                candidate_vae, _ = pipeline.get_candidate_vae(
+                    steps=async_task.steps,
+                    switch=switch,
+                    denoise=denoising_strength,
+                    refiner_swap_method=async_task.refiner_swap_method
+                )
+                initial_latent = core.encode_vae(vae=candidate_vae, pixels=pixels)
         imgs, img_paths, current_progress = process_task(all_steps, async_task, callback, controlnet_canny_path,
                                                          controlnet_cpds_path, current_task_id, denoising_strength,
                                                          final_scheduler_name, goals, initial_latent, steps, switch,
@@ -1077,6 +1261,13 @@ def worker():
         async_task.uov_method = async_task.uov_method.casefold()
         async_task.enhance_uov_method = async_task.enhance_uov_method.casefold()
 
+        # Global Quality Negative Prompt (Applies to all stages including C and D)
+        quality_negative_prompt = "extra fingers, deformed hands, messy clothes, more than five fingers, deformed feet, poor feet, bad anatomy, bad quality, low quality"
+        if async_task.negative_prompt:
+            async_task.negative_prompt = async_task.negative_prompt + ", " + quality_negative_prompt
+        else:
+            async_task.negative_prompt = quality_negative_prompt
+
         if fooocus_expansion in async_task.style_selections:
             use_expansion = True
             async_task.style_selections.remove(fooocus_expansion)
@@ -1136,6 +1327,7 @@ def worker():
         tasks = []
         current_progress = 1
 
+        # Stage A: Input & Orchestration
         if async_task.input_image_checkbox:
             base_model_additional_loras, clip_vision_path, controlnet_canny_path, controlnet_cpds_path, inpaint_head_model_path, inpaint_image, inpaint_mask, ip_adapter_face_path, ip_adapter_path, ip_negative_path, skip_prompt_processing, use_synthetic_refiner = apply_image_input(
                 async_task, base_model_additional_loras, clip_vision_path, controlnet_canny_path, controlnet_cpds_path,
@@ -1153,6 +1345,7 @@ def worker():
         print(f'[Parameters] Sampler = {async_task.sampler_name} - {async_task.scheduler_name}')
         print(f'[Parameters] Steps = {async_task.steps} - {switch}')
 
+        # Stage B: Initialization & Preparation
         progressbar(async_task, current_progress, 'Initializing ...')
 
         loras = async_task.loras
@@ -1278,11 +1471,14 @@ def worker():
         show_intermediate_results = len(tasks) > 1 or async_task.should_enhance
         persist_image = not async_task.should_enhance or not async_task.save_final_enhanced_image_only
 
+        # Stage C: Main Generation Loop (Single Run)
         for current_task_id, task in enumerate(tasks):
             progressbar(async_task, current_progress, f'Preparing task {current_task_id + 1}/{async_task.image_number} ...')
             execution_start_time = time.perf_counter()
 
             try:
+                # Hide intermediate results during first inpainting if Improve Detail will be applied
+                
                 imgs, img_paths, current_progress = process_task(all_steps, async_task, callback, controlnet_canny_path,
                                                                  controlnet_cpds_path, current_task_id,
                                                                  denoising_strength, final_scheduler_name, goals,
@@ -1293,6 +1489,7 @@ def worker():
                                                                  persist_image)
 
                 current_progress = int(preparation_steps + (100 - preparation_steps) / float(all_steps) * async_task.steps * (current_task_id + 1))
+                
                 images_to_enhance += imgs
 
             except ldm_patched.modules.model_management.InterruptProcessingException:
@@ -1307,6 +1504,136 @@ def worker():
             del task['c'], task['uc']  # Save memory
             execution_time = time.perf_counter() - execution_start_time
             print(f'Generating and saving time: {execution_time:.2f} seconds')
+
+        # Stage D: Automatic Improvement (Second Pass)
+        if 'inpaint' in goals and len(images_to_enhance) > 0 and inpaint_worker.current_task is not None:
+            print('[Auto Enhance] Automatically applying Improve Detail to inpaint result...')
+            progressbar(async_task, current_progress, 'Stage D: Improving detail (face, hand, eyes, etc.) ...')
+            
+            # Take the result from Stage C
+            inpaint_result_img = images_to_enhance[0]
+            
+            # Get the mask for Stage D (Prioritize Mask V3 regeneration on result)
+            if hasattr(async_task, 'use_masking_improve_detail') and async_task.use_masking_improve_detail:
+                print(f'[Auto Enhance] Regenerating Mask V3 on Stage 3 result for Stage 4 refinement...')
+                try:
+                    import cv2
+                    from modules.virtual_tryon import ClothMasker
+                    
+                    # 1. Save Stage 3 result image to temp directory
+                    temp_dir = async_task.masking_temp_dir
+                    stage3_img_path = os.path.join(temp_dir, 'result_stage3.png')
+                    # HWC3 ensures image is in correct format (numpy RGB)
+                    stage3_bgr = cv2.cvtColor(inpaint_result_img, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(stage3_img_path, stage3_bgr)
+                    
+                    # 2. Re-initialize masker with stored paths
+                    masker = ClothMasker(
+                        model_path=async_task.masking_saree_model_path,
+                        onnx_model_path=async_task.masking_onnx_model_path,
+                        b2_onnx_path=async_task.masking_seg_model_path
+                    )
+                    
+                    # 3. Process to get fresh mask_v3
+                    masking_output_path = os.path.join(temp_dir, 'result_stage4.png')
+                    masker.process(
+                        input_image_path=stage3_img_path,
+                        output_path=masking_output_path,
+                        border_thickness=3
+                    )
+                    
+                    # 4. Load the refined mask_v3
+                    final_mask_v3_path = os.path.join(temp_dir, 'result_stage4_mask_v3.png')
+                    if os.path.exists(final_mask_v3_path):
+                        print(f'[Auto Enhance] Using refined Stage 4 Mask V3: {final_mask_v3_path}')
+                        improve_detail_mask = cv2.imread(final_mask_v3_path, cv2.IMREAD_GRAYSCALE)
+                    else:
+                        print(f'[Auto Enhance] Warning: Refined mask_v3 not found at {final_mask_v3_path}, falling back to V2')
+                        improve_detail_mask = cv2.imread(async_task.masking_mask_v2_path, cv2.IMREAD_GRAYSCALE)
+                except Exception as e:
+                    print(f'[Auto Enhance] Error regenerating mask: {e}')
+                    improve_detail_mask = cv2.imread(async_task.masking_mask_v2_path, cv2.IMREAD_GRAYSCALE)
+            elif hasattr(async_task, 'masking_mask_v2_path') and os.path.exists(async_task.masking_mask_v2_path):
+                print(f'[Auto Enhance] Using existing Mask V2 for refinement: {async_task.masking_mask_v2_path}')
+                import cv2
+                improve_detail_mask = cv2.imread(async_task.masking_mask_v2_path, cv2.IMREAD_GRAYSCALE)
+            else:
+                improve_detail_mask = inpaint_worker.current_task.mask.copy()
+            
+            # Ensure mask matches image dimensions
+            inpaint_result_img = HWC3(inpaint_result_img)
+            img_h, img_w = inpaint_result_img.shape[:2]
+            mask_h, mask_w = improve_detail_mask.shape[:2]
+            if img_h != mask_h or img_w != mask_w:
+                improve_detail_mask = resize_image(improve_detail_mask, width=img_w, height=img_h)
+                if len(improve_detail_mask.shape) == 3:
+                    improve_detail_mask = improve_detail_mask[:, :, 0]
+            
+            # Prepare improve detail parameters
+            improve_detail_engine = 'None'
+            improve_detail_strength = 0.40
+            improve_detail_respective_field = 0.0
+            
+            # Specialized prompts for Stage 4 (Human Anatomy & Skin)
+            stage4_prompt = async_task.prompt
+            stage4_neg_prompt = async_task.negative_prompt
+            
+            if hasattr(async_task, 'use_masking_improve_detail') and async_task.use_masking_improve_detail:
+                # Add anatomy boosters (Refined for Footwear Preservation)
+                anatomy_boosters = " fair hands, highly detailed skin, realistic skin texture, perfect hands, detailed fingers, high quality anatomy, perfect legs, stylish footwear, highly detailed shoes, sharp footwear textures, high quality footwear details"
+                anatomy_neg = "deformed hands, extra fingers, missing fingers, bad anatomy, deformed limbs, fuzzy skin, blurry, low quality hands, plastic skin, mutation, extra limbs, bare feet, naked toes, skin on feet, toe nails, missing footwear"
+                
+                if stage4_prompt:
+                    stage4_prompt = f"{stage4_prompt}, {anatomy_boosters}"
+                else:
+                    stage4_prompt = anatomy_boosters
+                    
+                if stage4_neg_prompt:
+                    stage4_neg_prompt = f"{stage4_neg_prompt}, {anatomy_neg}"
+                else:
+                    stage4_neg_prompt = anatomy_neg
+                
+                print(f"[Stage 4] Using high-quality anatomy prompts for refinement")
+
+            # Calculate enhance steps
+            enhance_steps, _, _, _ = apply_overrides(async_task, async_task.original_steps, height, width)
+            
+            try:
+                # Call process_enhance (now patched with Latent Override fix)
+                current_progress, improved_img, _, _ = process_enhance(
+                    all_steps, async_task, callback, controlnet_canny_path,
+                    controlnet_cpds_path, current_progress, 0, denoising_strength,
+                    async_task.inpaint_disable_initial_latent, improve_detail_engine,
+                    improve_detail_respective_field, improve_detail_strength,
+                    stage4_prompt, stage4_neg_prompt, final_scheduler_name,
+                    ['inpaint'], height, inpaint_result_img, improve_detail_mask,
+                    preparation_steps, enhance_steps, switch, tiled, 1,
+                    use_expansion, use_style, use_synthetic_refiner, width,
+                    show_intermediate_results=False, persist_image=True)
+                
+                # Update images_to_enhance with the improved result
+                images_to_enhance = [improved_img]
+                print('[Auto Enhance] Improve Detail (Stage D) completed successfully')
+                
+                # Display final result
+                progressbar(async_task, current_progress, 'Saving final improved image ...')
+                if modules.config.default_black_out_nsfw or async_task.black_out_nsfw:
+                    progressbar(async_task, current_progress, 'Checking for NSFW content ...')
+                    improved_img = default_censor([improved_img])[0]
+                
+                improved_img = HWC3(improved_img)
+                improved_img_path = log(improved_img, [('Inpaint', 'inpaint', 'default'), ('Improve Detail', 'improve_detail', 'auto')], 
+                                       output_format=async_task.output_format, persist_image=True)
+                yield_result(async_task, improved_img_path, 100, async_task.black_out_nsfw, False,
+                            do_not_show_finished_images=False)
+                
+                # Skip normal enhancement if auto-enhance succeeded
+                async_task.should_enhance = False
+                
+            except Exception as e:
+                print(f'[Auto Enhance] Error during Stage D: {e}')
+                import traceback
+                traceback.print_exc()
 
         if not async_task.should_enhance:
             print(f'[Enhance] Skipping, preconditions aren\'t met')

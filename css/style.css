@@ -416,3 +416,8 @@ div:has(> #positive_prompt) {
 #inpaint_brush_color input[type=color]{
   background: none;
 }
+
+/* Hide all tabs except Inpaint or Outpaint */
+#input_image_tabs > .tab-nav > button:not(:nth-child(3)) {
+    display: none !important;
+}

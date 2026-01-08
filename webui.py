@@ -115,33 +115,28 @@ def sort_enhance_images(images, task):
 def inpaint_mode_change(mode, inpaint_engine_version):
     assert mode in modules.flags.inpaint_options
 
-    # inpaint_additional_prompt, outpaint_selections, example_inpaint_prompts,
-    # inpaint_disable_initial_latent, inpaint_engine,
-    # inpaint_strength, inpaint_respective_field
+    if inpaint_engine_version == 'empty':
+        inpaint_engine_version = modules.config.default_inpaint_engine_version
 
     if mode == modules.flags.inpaint_option_detail:
         return [
             gr.update(visible=True), gr.update(visible=False, value=[]),
             gr.Dataset.update(visible=True, samples=modules.config.example_inpaint_prompts),
-            False, 'None', 0.5, 0.0
+            False, 'None', 0.40, 0
         ]
-
-    if inpaint_engine_version == 'empty':
-        inpaint_engine_version = modules.config.default_inpaint_engine_version
 
     if mode == modules.flags.inpaint_option_modify:
         return [
             gr.update(visible=True), gr.update(visible=False, value=[]),
             gr.Dataset.update(visible=False, samples=modules.config.example_inpaint_prompts),
-            True, inpaint_engine_version, 1.0, 0.0
+            True, inpaint_engine_version, 0.81, 0.618
         ]
 
     return [
         gr.update(visible=False, value=''), gr.update(visible=True),
         gr.Dataset.update(visible=False, samples=modules.config.example_inpaint_prompts),
-        False, inpaint_engine_version, 1.0, 0.618
+        False, inpaint_engine_version, 0.81, 0.618
     ]
-
 
 reload_javascript()
 
@@ -201,18 +196,18 @@ with shared.gradio_root:
                     skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=False, show_progress=False)
             with gr.Row(elem_classes='advanced_check_row'):
                 input_image_checkbox = gr.Checkbox(label='Input Image', value=modules.config.default_image_prompt_checkbox, container=False, elem_classes='min_check')
-                enhance_checkbox = gr.Checkbox(label='Enhance', value=modules.config.default_enhance_checkbox, container=False, elem_classes='min_check')
+                enhance_checkbox = gr.Checkbox(label='Enhance', value=modules.config.default_enhance_checkbox, container=False, elem_classes='min_check', visible=False)
                 advanced_checkbox = gr.Checkbox(label='Advanced', value=modules.config.default_advanced_checkbox, container=False, elem_classes='min_check')
             with gr.Row(visible=modules.config.default_image_prompt_checkbox) as image_input_panel:
-                with gr.Tabs(selected=modules.config.default_selected_image_input_tab_id):
-                    with gr.Tab(label='Upscale or Variation', id='uov_tab') as uov_tab:
+                with gr.Tabs(selected='inpaint_tab', elem_id='input_image_tabs'):
+                    with gr.Tab(label='Upscale or Variation', id='uov_tab', visible=False) as uov_tab:
                         with gr.Row():
                             with gr.Column():
                                 uov_input_image = grh.Image(label='Image', source='upload', type='numpy', show_label=False)
                             with gr.Column():
                                 uov_method = gr.Radio(label='Upscale or Variation:', choices=flags.uov_list, value=modules.config.default_uov_method)
                                 gr.HTML('<a href="https://github.com/lllyasviel/Fooocus/discussions/390" target="_blank">\U0001F4D4 Documentation</a>')
-                    with gr.Tab(label='Image Prompt', id='ip_tab') as ip_tab:
+                    with gr.Tab(label='Image Prompt', id='ip_tab', visible=False) as ip_tab:
                         with gr.Row():
                             ip_images = []
                             ip_types = []
@@ -258,24 +253,31 @@ with shared.gradio_root:
                     with gr.Tab(label='Inpaint or Outpaint', id='inpaint_tab') as inpaint_tab:
                         with gr.Row():
                             with gr.Column():
-                                inpaint_input_image = grh.Image(label='Image', source='upload', type='numpy', tool='sketch', height=500, brush_color="#FFFFFF", elem_id='inpaint_canvas', show_label=False)
-                                inpaint_advanced_masking_checkbox = gr.Checkbox(label='Enable Advanced Masking Features', value=modules.config.default_inpaint_advanced_masking_checkbox)
+                                # Person and Cloth images side by side
+                                with gr.Row():
+                                    inpaint_input_image = grh.Image(label='Person Image', source='upload', type='numpy', tool='sketch', height=500, brush_color="#FFFFFF", elem_id='inpaint_canvas', show_label=True)
+                                    cloth_input_image = grh.Image(label='Cloth Image (Optional - for Virtual Try-On)', source='upload', type='numpy', height=500, show_label=True)
+                                # Virtual Try-On always enabled (checkbox removed)
                                 inpaint_mode = gr.Dropdown(choices=modules.flags.inpaint_options, value=modules.config.default_inpaint_method, label='Method')
                                 inpaint_additional_prompt = gr.Textbox(placeholder="Describe what you want to inpaint.", elem_id='inpaint_additional_prompt', label='Inpaint Additional Prompt', visible=False)
-                                outpaint_selections = gr.CheckboxGroup(choices=['Left', 'Right', 'Top', 'Bottom'], value=[], label='Outpaint Direction')
+                                with gr.Column(visible=False):
+                                    outpaint_selections = gr.CheckboxGroup(choices=['Left', 'Right', 'Top', 'Bottom'], value=[], label='Outpaint Direction')
                                 example_inpaint_prompts = gr.Dataset(samples=modules.config.example_inpaint_prompts,
                                                                      label='Additional Prompt Quick List',
                                                                      components=[inpaint_additional_prompt],
                                                                      visible=False)
-                                gr.HTML('* Powered by Fooocus Inpaint Engine <a href="https://github.com/lllyasviel/Fooocus/discussions/414" target="_blank">\U0001F4D4 Documentation</a>')
+                                gr.HTML('* Powered by Fooocus Inpaint Engine <a href="https://github.com/lllyasviel/Fooocus/discussions/414" target="_blank">\U0001F4D4 Documentation</a>', visible=False)
                                 example_inpaint_prompts.click(lambda x: x[0], inputs=example_inpaint_prompts, outputs=inpaint_additional_prompt, show_progress=False, queue=False)
 
-                            with gr.Column(visible=modules.config.default_inpaint_advanced_masking_checkbox) as inpaint_mask_generation_col:
-                                inpaint_mask_image = grh.Image(label='Mask Upload', source='upload', type='numpy', tool='sketch', height=500, brush_color="#FFFFFF", mask_opacity=1, elem_id='inpaint_mask_canvas')
-                                invert_mask_checkbox = gr.Checkbox(label='Invert Mask When Generating', value=modules.config.default_invert_mask_checkbox)
+                                # Mask Upload and inpaint mask tools removed -- COLUMN HIDDEN
+# (Begin removal of manual mask section)
+
+                                inpaint_mask_image = grh.Image(label='Mask Upload', source='upload', type='numpy', tool='sketch', height=500, brush_color="#FFFFFF", mask_opacity=1, elem_id='inpaint_mask_canvas', visible=False)
+                                invert_mask_checkbox = gr.Checkbox(label='Invert Mask When Generating', value=modules.config.default_invert_mask_checkbox, visible=False)
                                 inpaint_mask_model = gr.Dropdown(label='Mask generation model',
                                                                  choices=flags.inpaint_mask_models,
-                                                                 value=modules.config.default_inpaint_mask_model)
+                                                                 value=modules.config.default_inpaint_mask_model,
+                                                                 visible=False)
                                 inpaint_mask_cloth_category = gr.Dropdown(label='Cloth category',
                                                              choices=flags.inpaint_mask_cloth_category,
                                                              value=modules.config.default_inpaint_mask_cloth_category,
@@ -285,7 +287,7 @@ with shared.gradio_root:
                                     samples=modules.config.example_enhance_detection_prompts,
                                     label='Detection Prompt Quick List',
                                     components=[inpaint_mask_dino_prompt_text],
-                                    visible=modules.config.default_inpaint_mask_model == 'sam')
+                                    visible=False)
                                 example_inpaint_mask_dino_prompt_text.click(lambda x: x[0],
                                                                             inputs=example_inpaint_mask_dino_prompt_text,
                                                                             outputs=inpaint_mask_dino_prompt_text,
@@ -296,7 +298,7 @@ with shared.gradio_root:
                                     inpaint_mask_box_threshold = gr.Slider(label="Box Threshold", minimum=0.0, maximum=1.0, value=0.3, step=0.05)
                                     inpaint_mask_text_threshold = gr.Slider(label="Text Threshold", minimum=0.0, maximum=1.0, value=0.25, step=0.05)
                                     inpaint_mask_sam_max_detections = gr.Slider(label="Maximum number of detections", info="Set to 0 to detect all", minimum=0, maximum=10, value=modules.config.default_sam_max_detections, step=1, interactive=True)
-                                generate_mask_button = gr.Button(value='Generate mask from image')
+                                generate_mask_button = gr.Button(value='Generate mask from image', visible=False)
 
                                 def generate_mask(image, mask_model, cloth_category, dino_prompt_text, sam_model, box_threshold, text_threshold, sam_max_detections, dino_erode_or_dilate, dino_debug):
                                     from extras.inpaint_mask import generate_mask_from_image
@@ -332,7 +334,7 @@ with shared.gradio_root:
                                                                    example_inpaint_mask_dino_prompt_text],
                                                           queue=False, show_progress=False)
 
-                    with gr.Tab(label='Describe', id='describe_tab') as describe_tab:
+                    with gr.Tab(label='Describe', id='describe_tab', visible=False) as describe_tab:
                         with gr.Row():
                             with gr.Column():
                                 describe_input_image = grh.Image(label='Image', source='upload', type='numpy', show_label=False)
@@ -353,13 +355,13 @@ with shared.gradio_root:
                                 describe_input_image.upload(trigger_show_image_properties, inputs=describe_input_image,
                                                             outputs=describe_image_size, show_progress=False, queue=False)
 
-                    with gr.Tab(label='Enhance', id='enhance_tab') as enhance_tab:
+                    with gr.Tab(label='Enhance', id='enhance_tab', visible=False) as enhance_tab:
                         with gr.Row():
                             with gr.Column():
                                 enhance_input_image = grh.Image(label='Use with Enhance, skips image generation', source='upload', type='numpy')
                                 gr.HTML('<a href="https://github.com/lllyasviel/Fooocus/discussions/3281" target="_blank">\U0001F4D4 Documentation</a>')
 
-                    with gr.Tab(label='Metadata', id='metadata_tab') as metadata_tab:
+                    with gr.Tab(label='Metadata', id='metadata_tab', visible=False) as metadata_tab:
                         with gr.Column():
                             metadata_input_image = grh.Image(label='For images created by Fooocus', source='upload', type='pil')
                             metadata_json = gr.JSON(label='Metadata')
@@ -382,7 +384,7 @@ with shared.gradio_root:
 
             with gr.Row(visible=modules.config.default_enhance_checkbox) as enhance_input_panel:
                 with gr.Tabs():
-                    with gr.Tab(label='Upscale or Variation'):
+                    with gr.Tab(label='Upscale or Variation', visible=False):
                         with gr.Row():
                             with gr.Column():
                                 enhance_uov_method = gr.Radio(label='Upscale or Variation:', choices=flags.uov_list,
@@ -545,7 +547,7 @@ with shared.gradio_root:
                                         outputs=image_input_panel, queue=False, show_progress=False, _js=switch_js)
             ip_advanced.change(lambda: None, queue=False, show_progress=False, _js=down_js)
 
-            current_tab = gr.Textbox(value='uov', visible=False)
+            current_tab = gr.Textbox(value='inpaint', visible=False)
             uov_tab.select(lambda: 'uov', outputs=current_tab, queue=False, _js=down_js, show_progress=False)
             inpaint_tab.select(lambda: 'inpaint', outputs=current_tab, queue=False, _js=down_js, show_progress=False)
             ip_tab.select(lambda: 'ip', outputs=current_tab, queue=False, _js=down_js, show_progress=False)
@@ -588,8 +590,8 @@ with shared.gradio_root:
                                              info='Describing what you do not want to see.', lines=2,
                                              elem_id='negative_prompt',
                                              value=modules.config.default_prompt_negative)
-                seed_random = gr.Checkbox(label='Random', value=True)
-                image_seed = gr.Textbox(label='Seed', value=0, max_lines=1, visible=False) # workaround for https://github.com/gradio-app/gradio/issues/5354
+                seed_random = gr.Checkbox(label='Random', value=False)
+                image_seed = gr.Textbox(label='Seed', value=12345, max_lines=1, visible=True) # workaround for https://github.com/gradio-app/gradio/issues/5354
 
                 def random_checked(r):
                     return gr.update(visible=not r)
@@ -796,7 +798,7 @@ with shared.gradio_root:
                                                                       value=False)
 
                         controlnet_softness = gr.Slider(label='Softness of ControlNet', minimum=0.0, maximum=1.0,
-                                                        step=0.001, value=0.25,
+                                                        step=0.001, value=0.85,
                                                         info='Similar to the Control Mode in A1111 (use 0.0 to disable). ')
 
                         with gr.Tab(label='Canny'):
@@ -843,12 +845,7 @@ with shared.gradio_root:
 
                         inpaint_ctrls = [debugging_inpaint_preprocessor, inpaint_disable_initial_latent, inpaint_engine,
                                          inpaint_strength, inpaint_respective_field,
-                                         inpaint_advanced_masking_checkbox, invert_mask_checkbox, inpaint_erode_or_dilate]
-
-                        inpaint_advanced_masking_checkbox.change(lambda x: [gr.update(visible=x)] * 2,
-                                                                 inputs=inpaint_advanced_masking_checkbox,
-                                                                 outputs=[inpaint_mask_image, inpaint_mask_generation_col],
-                                                                 queue=False, show_progress=False)
+                                         invert_mask_checkbox, inpaint_erode_or_dilate]
 
                         inpaint_mask_color.change(lambda x: gr.update(brush_color=x), inputs=inpaint_mask_color,
                                                   outputs=inpaint_input_image,
@@ -984,7 +981,7 @@ with shared.gradio_root:
         ctrls += [base_model, refiner_model, refiner_switch] + lora_ctrls
         ctrls += [input_image_checkbox, current_tab]
         ctrls += [uov_method, uov_input_image]
-        ctrls += [outpaint_selections, inpaint_input_image, inpaint_additional_prompt, inpaint_mask_image]
+        ctrls += [outpaint_selections, inpaint_input_image, inpaint_additional_prompt, inpaint_mask_image, cloth_input_image]
         ctrls += [disable_preview, disable_intermediate_results, disable_seed_increment, black_out_nsfw]
         ctrls += [adm_scaler_positive, adm_scaler_negative, adm_scaler_end, adaptive_cfg, clip_skip]
         ctrls += [sampler_name, scheduler_name, vae_name]
