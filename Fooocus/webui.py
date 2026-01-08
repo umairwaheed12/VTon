@@ -1112,7 +1112,15 @@ def dump_default_english_config():
     dump_english_config(grh.all_components)
 
 
+# Dump config
 # dump_default_english_config()
+
+# Pre-load VTON models (User Optimization)
+print("Startup: Initiating VTON model pre-loading...")
+try:
+    worker.preload_vton_models()
+except Exception as e:
+    print(f"Startup Warning: VTON pre-loading failed (will load lazily): {e}")
 
 shared.gradio_root.launch(
     inbrowser=args_manager.args.in_browser,

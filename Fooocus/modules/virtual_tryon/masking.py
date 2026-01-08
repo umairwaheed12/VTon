@@ -1,4 +1,4 @@
-import cv2
+﻿import cv2
 import numpy as np
 import torch
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
@@ -634,8 +634,9 @@ class ClothMasker:
         
         return result
     
-    def process(self, input_image_path, output_path, border_thickness=20, 
-                overlay_color=(100, 140, 255), alpha=0.5, warp_mask_path=None, generate_v3=True):
+    def process(self, input_image_path=None, output_path=None, border_thickness=20, 
+                overlay_color=(100, 140, 255), alpha=0.5, warp_mask_path=None, generate_v3=True,
+                image=None, warp_mask_image=None):
         """
         Main processing pipeline: Load image -> Segment cloth -> Create thick border -> Apply overlay
         
@@ -646,16 +647,24 @@ class ClothMasker:
             overlay_color: BGR color for overlay (default: coral/pink)
             alpha: Overlay transparency (default: 0.5)
             warp_mask_path: Optional path to _MASK.png from robust_cloth_warp.py
+            image: Optional numpy array (BGR). If provided, input_image_path is ignored.
+            warp_mask_image: Optional numpy array (Gray). If provided, warp_mask_path is ignored.
         """
         print(f"\n{'='*60}")
-        print(f"Processing: {input_image_path}")
+        if input_image_path:
+            print(f"Processing: {input_image_path}")
+        else:
+            print("Processing image from memory...")
         print(f"{'='*60}")
         
         # Load image
-        image = cv2.imread(str(input_image_path))
         if image is None:
-            print(f"[ERROR] Failed to load image: {input_image_path}")
-            return
+            image = cv2.imread(str(input_image_path))
+            if image is None:
+                print(f"[ERROR] Failed to load image: {input_image_path}")
+                return None
+        else:
+            image = image.copy()
         
         h, w = image.shape[:2]
         print(f"[OK] Image loaded: {w}x{h}")
@@ -708,28 +717,38 @@ class ClothMasker:
         # Load and include warp mask from robust_cloth_warp.py if provided
         warp_mask = None
         connection_mask = None
-        if warp_mask_path:
+        
+        # Logic to use passed warp_mask_image or load from path
+        if warp_mask_image is not None:
+             print(">> Using warp mask from memory")
+             warp_mask = warp_mask_image.copy()
+             # Ensure single channel
+             if len(warp_mask.shape) == 3:
+                 warp_mask = cv2.cvtColor(warp_mask, cv2.COLOR_BGR2GRAY)
+        elif warp_mask_path:
             print(f">> Loading warp mask from: {warp_mask_path}")
             warp_mask = cv2.imread(str(warp_mask_path), cv2.IMREAD_GRAYSCALE)
-            if warp_mask is not None:
-                # Resize to match image dimensions if needed
-                if warp_mask.shape[:2] != (h, w):
-                    warp_mask = cv2.resize(warp_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-                print(f"[OK] Warp mask loaded: {cv2.countNonZero(warp_mask)} pixels")
-                
-                # CRITICAL CHANGE: If warp_mask is provided (from dresss.py), TRUST IT.
-                # Do NOT fill gaps between legs if they exist in warp_mask.
-                
-                # Combine: warp mask + legs mask
-                skin_mask = cv2.bitwise_or(skin_mask, warp_mask)
-                
-                # OPTIONAL: Connection logic disabled to preserve gaps
-                # connection_mask = self._connect_masks_from_below(warp_mask, skin_mask, h, w)
-                # skin_mask = cv2.bitwise_or(skin_mask, connection_mask)
-                
-                print(f"[OK] Combined mask: {cv2.countNonZero(skin_mask)} pixels")
-            else:
-                print(f"[WARNING] Failed to load warp mask from: {warp_mask_path}")
+            
+        if warp_mask is not None:
+            # Resize to match image dimensions if needed
+            if warp_mask.shape[:2] != (h, w):
+                warp_mask = cv2.resize(warp_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+            print(f"[OK] Warp mask loaded: {cv2.countNonZero(warp_mask)} pixels")
+            
+            # CRITICAL CHANGE: If warp_mask is provided (from dresss.py), TRUST IT.
+            # Do NOT fill gaps between legs if they exist in warp_mask.
+            
+            # Combine: warp mask + legs mask
+            skin_mask = cv2.bitwise_or(skin_mask, warp_mask)
+            
+            # OPTIONAL: Connection logic disabled to preserve gaps
+            # connection_mask = self._connect_masks_from_below(warp_mask, skin_mask, h, w)
+            # skin_mask = cv2.bitwise_or(skin_mask, connection_mask)
+            
+            print(f"[OK] Combined mask: {cv2.countNonZero(skin_mask)} pixels")
+        else:
+            if warp_mask_path:
+                 print(f"[WARNING] Failed to load warp mask from: {warp_mask_path}")
         
         # Create thick border
         print(f">> Creating thick border (thickness: {border_thickness}px)...")
