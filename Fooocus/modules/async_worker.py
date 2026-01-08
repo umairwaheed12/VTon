@@ -900,7 +900,7 @@ def worker():
                         print("[Virtual Try-On] Invalid cloth image format, skipping virtual try-on")
                         raise ValueError("Invalid cloth image")
                     
-                    progressbar(async_task, 1, 'Processing Virtual Try-On...')
+                    progressbar(async_task, 1, 'Processing...')
                     
                     # Get model paths
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -914,7 +914,7 @@ def worker():
                     with vton_lock:
                         if vton_warper_instance is None or vton_masker_instance is None:
                             # Note: These paths are used for fallback if pre-loading failed
-                            progressbar(async_task, 1, 'Loading Virtual Try-On models (Fallback)...')
+                            progressbar(async_task, 1, 'Processing...')
                             if vton_warper_instance is None:
                                 vton_warper_instance = ShoulderHeightDressWarper(
                                     seg_model_path=seg_model_path,
@@ -958,7 +958,7 @@ def worker():
                     cv2.imwrite(cloth_path, cloth_bgr)
                     
                     # Step 1: Run dresss.py (warping)
-                    progressbar(async_task, 1, 'Warping cloth onto person (dresss.py)...')
+                    progressbar(async_task, 1, 'Processing...')
                     dress_output_path = os.path.join(temp_dir, 'result_dress.png')
                     warper.process(person_path, cloth_path, dress_output_path)
                     
@@ -971,7 +971,7 @@ def worker():
                         dress_mask_path = None
                     
                     # Step 2: Run masking.py
-                    progressbar(async_task, 1, 'Generating final mask (masking.py)...')
+                    progressbar(async_task, 1, 'Processing...')
                     masking_output_path = os.path.join(temp_dir, 'result_masking.png')
                     masker.process(
                         input_image_path=dress_output_path,
@@ -1523,7 +1523,7 @@ def worker():
         # Stage D: Automatic Improvement (Second Pass)
         if 'inpaint' in goals and len(images_to_enhance) > 0 and inpaint_worker.current_task is not None:
             print('[Auto Enhance] Automatically applying Improve Detail to inpaint result...')
-            progressbar(async_task, current_progress, 'Stage D: Improving detail (face, hand, eyes, etc.) ...')
+            progressbar(async_task, current_progress, 'Processing...')
             
             # Take the result from Stage C
             inpaint_result_img = images_to_enhance[0]
