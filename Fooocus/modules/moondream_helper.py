@@ -97,8 +97,8 @@ def load_moondream():
     print(f"🌙 Moondream: Loading model from {model_id}...")
     
     try:
-        # Latest revision from HuggingFace (supports high-level .query, .caption)
-        revision = "2025-06-21"
+        # Use proven stable revision
+        revision = "2024-04-02"
         
         _processor = AutoProcessor.from_pretrained(
             model_id,
@@ -113,9 +113,8 @@ def load_moondream():
             model_id,
             trust_remote_code=True,
             torch_dtype=dtype,
-            revision=revision,
-            device_map={"": device}
-        )
+            revision=revision
+        ).to(device)
         
         _model.eval()
         print(f"✅ Moondream: Loaded successfully on {device}")
@@ -155,12 +154,17 @@ def analyze_cloth(image):
         "Provide reasoning (colors, fabric, style, fit, accessories)."
     )
     
-    print(f"🌙 Moondream: Querying (High-Level API): {query}...")
+    print(f"🌙 Moondream: Querying (Reasoning Mode): {query}...")
     start_time = time.time()
     
     try:
         with torch.no_grad():
-            response = model.query(image, query)["answer"]
+            image_embeds = model.encode_image(image)
+            response = model.answer_question(
+                image_embeds=image_embeds,
+                question=query,
+                tokenizer=processor
+            )
             
         elapsed = time.time() - start_time
         description = response.strip()
