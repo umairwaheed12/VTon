@@ -188,11 +188,11 @@ class VTONCoordinator:
         return result
 
 def main():
-    # Discover project root
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    # Discover project root (4 levels up from Modules/Virtual_Tryon2)
+    base_dir = Path(__file__).resolve().parents[3]
     
     # Standardized paths from models_downloader.py
-    B2_MODEL = base_dir / "models" / "segformer_b2_clothes.onnx"
+    B2_MODEL = base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
     B3_MODEL = base_dir / "models" / "segformer-b3-fashion"
     
     # Check if models exist

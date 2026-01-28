@@ -37,8 +37,8 @@ class FixedShirtPantsWarper:
             min_detection_confidence=0.5
         )
         
-        # Discover project root
-        self.base_dir = Path(__file__).resolve().parent.parent.parent
+        # Discover project root (4 levels up from Modules/Virtual_Tryon2)
+        self.base_dir = Path(__file__).resolve().parents[3]
         
         # Unified Masking Helper
         sam_path = self.base_dir / "models" / "sam" / "sam_vit_b_01ec64.pth"
@@ -1010,11 +1010,11 @@ class FixedShirtPantsWarper:
 
 
 def main():
-    # Discover project root
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    # Discover project root (4 levels up from Modules/Virtual_Tryon2)
+    base_dir = Path(__file__).resolve().parents[3]
     
     # Standardized paths from models_downloader.py
-    B2_MODEL = base_dir / "models" / "segformer_b2_clothes.onnx"
+    B2_MODEL = base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
     B3_MODEL = base_dir / "models" / "segformer-b3-fashion"
     
     # Check if models exist

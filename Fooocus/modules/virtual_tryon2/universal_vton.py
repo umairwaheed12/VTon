@@ -38,8 +38,8 @@ class UniversalGarmentWarper:
         else:
             print("⚠ MediaPipe not available. Using segmentation-based pose estimation.")
             
-        # Discover project root
-        self.base_dir = Path(__file__).resolve().parent.parent.parent
+        # Discover project root (4 levels up from Modules/Virtual_Tryon2)
+        self.base_dir = Path(__file__).resolve().parents[3]
         
         # Unified Masking Helper
         sam_path = self.base_dir / "models" / "sam" / "sam_vit_b_01ec64.pth"

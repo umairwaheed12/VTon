@@ -97,7 +97,7 @@ class AsyncTask:
              self.inpaint_engine = 'v2.6'
         self.inpaint_strength = args.pop()
         self.inpaint_respective_field = args.pop()
-        self.vton_mode_label = args.pop()
+        self.inpaint_mode = args.pop()
         # Advanced masking checkbox removed - always enabled (mask generation column always visible)
         self.inpaint_advanced_masking_checkbox = True
         self.invert_mask_checkbox = args.pop()
@@ -903,17 +903,20 @@ def worker():
                     
                     # Initialize VTONCoordinator
                     from modules.virtual_tryon2.vton_coordinator import VTONCoordinator
-                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    seg_model_path = os.path.join(base_dir, 'models', 'segformer_b2_clothes.onnx')
+                    # Discover project root (4 levels up from Modules/Virtual_Tryon2)
+                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    # models_downloader.py paths
+                    seg_model_path = os.path.join(base_dir, 'models', 'SegFormerB2Clothes', 'segformer_b2_clothes.onnx')
                     saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
                     coordinator = VTONCoordinator(seg_model_path, saree_model_path)
 
                     # Map UI label to mode
+                    # Map UI label to mode
                     vton_mode = 'auto'
-                    if async_task.vton_mode_label == flags.vton_upper: vton_mode = 'upper'
-                    elif async_task.vton_mode_label == flags.vton_lower: vton_mode = 'lower'
-                    elif async_task.vton_mode_label == flags.vton_overall: vton_mode = 'overall'
-                    elif async_task.vton_mode_label == flags.vton_outfit: vton_mode = 'outfit'
+                    if async_task.inpaint_mode == flags.vton_upper: vton_mode = 'upper'
+                    elif async_task.inpaint_mode == flags.vton_lower: vton_mode = 'lower'
+                    elif async_task.inpaint_mode == flags.vton_overall: vton_mode = 'overall'
+                    elif async_task.inpaint_mode == flags.vton_outfit: vton_mode = 'outfit'
                     
                     print(f"\n[Coordinator] Selected mode from UI: {vton_mode}")
 
