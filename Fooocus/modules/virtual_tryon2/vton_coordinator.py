@@ -24,7 +24,8 @@ class VTONCoordinator:
         unique_classes = np.unique(seg_map).tolist()
         
         # Define class groups (Strict according to B3 legend)
-        UPPER_CLASSES = {1, 2, 3, 4, 5, 6, 10, 28, 29, 32, 34, 39, 40, 41, 42, 43, 44, 45, 46}
+        # FIX: Removed 45 (background) and 46 (hair) from UPPER_CLASSES to prevent mis-detection as 'outfit'
+        UPPER_CLASSES = {1, 2, 3, 4, 5, 6, 10, 28, 29, 32, 34, 39, 40, 41, 42, 43, 44}
         LOWER_CLASSES = {7, 8, 9, 33}
         OVERALL_CLASSES = {11, 12, 13} # Dress, Jumpsuit, Cape only (Remove 20 - Belt)
         

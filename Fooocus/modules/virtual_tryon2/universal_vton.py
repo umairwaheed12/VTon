@@ -183,8 +183,8 @@ class UniversalGarmentWarper:
         warped_mask = cv2.remap(mask, map_x, map_y, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         return warped, warped_mask
 
-    def get_lbs_warp(self, pants_img, src_pose, dst_pose, target_shape):
-        """Bone-based skinning (LBS) for Lower garments"""
+    def get_lbs_warp(self, pants_img, src_pose, dst_pose, target_shape, mask=None):
+        """Bone-based skinning (LBS) for Lower garments (mask supported)"""
         h, w = target_shape[:2]
         bones_list = ['waist', 'l_thigh', 'l_shin', 'r_thigh', 'r_shin']
         
@@ -214,7 +214,11 @@ class UniversalGarmentWarper:
                 P_src_acc += (transforms[b_name] @ P_dst) * weights_map[:, :, i].reshape(-1)
         
         mx, my = P_src_acc[0, :].reshape(h, w), P_src_acc[1, :].reshape(h, w)
-        return cv2.remap(pants_img, mx, my, cv2.INTER_LANCZOS4, borderValue=(0,0,0))
+        warped_img = cv2.remap(pants_img, mx, my, cv2.INTER_LANCZOS4, borderValue=(0,0,0))
+        warped_mask = None
+        if mask is not None:
+            warped_mask = cv2.remap(mask, mx, my, cv2.INTER_NEAREST, borderValue=0)
+        return warped_img, warped_mask
 
     def _get_bones(self, p):
         return {
@@ -412,55 +416,24 @@ class UniversalGarmentWarper:
         
         print(f"  Unified Garment bbox: {c_bbox}")
         
-        # 3. Precision Scaling & Alignment (Anti-Stretching: Sleeve-to-Sleeve)
-        # Person Arm Span: Distance between wrists (or elbows if wrists not visible)
-        l_w_p = p_pose.get('left_wrist', p_pose['left_shoulder'])
-        r_w_p = p_pose.get('right_wrist', p_pose['right_shoulder'])
-        p_span = np.linalg.norm(l_w_p - r_w_p)
-        p_s_mid = (p_pose['left_shoulder'] + p_pose['right_shoulder']) / 2.0
+        # 3. Automatic Garment Type Detection (Refined)
+        UPPER_CLASSES = {1, 2, 3, 4, 5, 6, 10, 28, 29, 32, 34, 39, 40, 41, 42, 43, 44}
+        LOWER_CLASSES = {7, 8, 9, 33}
+        OVERALL_CLASSES = {11, 12, 13}
         
-        # Garment Source Pose (Mask-Based with Segmentation Classes)
-        c_kp = self.estimate_source_pose_mask_based(c_mask, c_bbox, g_anchor_pt=None, c_seg=c_seg)
-        g_span = np.linalg.norm(c_kp['left_wrist'] - c_kp['right_wrist'])
-        g_anchor = c_kp['neck_anchor']
+        upper_px = np.sum(np.isin(c_seg, list(UPPER_CLASSES)))
+        lower_px = np.sum(np.isin(c_seg, list(LOWER_CLASSES)))
+        overall_px = np.sum(np.isin(c_seg, list(OVERALL_CLASSES)))
         
-        # TORSO WIDTHS for validation
-        p_t_width = np.linalg.norm(p_pose['left_shoulder'] - p_pose['right_shoulder'])
-        g_t_width = np.linalg.norm(c_kp['left_shoulder'] - c_kp['right_shoulder'])
-        min_shoulder_y = min(p_pose['left_shoulder'][1], p_pose['right_shoulder'][1])
-
-        # SLEEVELESS DETECTION (Case 3)
-        # Check if garment has sleeves (class 32)
-        has_g_sleeves = False
-        if c_seg is not None:
-            has_g_sleeves = np.sum(c_seg == 32) > 100
-        
-        is_case_3 = (not has_g_sleeves)
-        if is_case_3:
-            print(f"  🎽 Case 3: Sleeveless garment detected - applying strict inner-arm fit.")
-
-        # Calculate Scale: Match total sleeve-to-sleeve width
-        scale_width = (p_span / (g_span + 1e-6))
-        
-        # Check for pants/jeans in cloth (Class 7 or 8)
-        has_pants = False
-        has_sequins = False
-        if c_seg is not None:
-            pants_mask = np.isin(c_seg, [7, 8]).astype(np.uint8) * 255
-            if np.sum(pants_mask > 0) > 500:
-                has_pants = True
-                print("  👖 Pants detected in outfit! Calculating height-based scale...")
-            
-            # Check for Sequins (Class 45)
-            sequin_mask = (c_seg == 45).astype(np.uint8) * 255
-            if np.sum(sequin_mask > 0) > 500:
-                has_sequins = True
-                print("  ✨ Sequins detected (class 45)! Setting target length to 5% KEY below feet...")
+        if overall_px > 5000: g_type = 'overall'
+        elif lower_px > upper_px * 1.5: g_type = 'lower'
+        else: g_type = 'upper'
+        print(f"  [Detection] Garment Type: {g_type.upper()}")
 
         scale = scale_width
         
         # If pants/sequins are present, prioritize HEIGHT scaling
-        if (has_pants or has_sequins) and 'left_ankle' in p_pose and 'right_ankle' in p_pose:
+        if (g_type == 'lower' or has_sequins) and 'left_ankle' in p_pose and 'right_ankle' in p_pose:
             # Person height target logic
             p_min_shoulder_y = min(p_pose['left_shoulder'][1], p_pose['right_shoulder'][1])
             p_avg_ankle_y = (p_pose['left_ankle'][1] + p_pose['right_ankle'][1]) / 2.0
@@ -474,7 +447,7 @@ class UniversalGarmentWarper:
             
             # Garment source height (Anchor to Bottom of BBox)
             g_bottom_y = by + bh
-            g_height_source = g_bottom_y - g_anchor[1]
+            g_height_source = (g_bottom_y - g_anchor[1])  # Height relative to anchor
             
             scale_height = p_height_target / (g_height_source + 1e-6)
             scale = scale_height
@@ -630,28 +603,72 @@ class UniversalGarmentWarper:
                 vertical_drop = p_torso_height * 0.10
                 target_anchor = np.array([p_s_mid[0], min_shoulder_y + vertical_drop])
                 print(f"  🎽 Case 3 Alignment: Fallback with {int(vertical_drop)}px drop")
+        # 5. Advanced Warping (TPS or LBS)
+        if g_type == 'lower':
+            # Use LBS for pants/shorts
+            warped_cloth, warped_mask = self.get_lbs_warp(cloth_img, c_kp, p_pose, person_img.shape, mask=c_mask)
         else:
-            if has_collar:
-                lift_amount = p_t_width * 0.33  # More lift for collared garments
-                print(f"  👔 Collar detected - using 30% lift")
-            else:
-                lift_amount = p_t_width * 0.04  # Standard lift for regular garments
+            # Use TPS for upper/overall
+            # Blend wrist/elbow kps to match limb length
+            for k in ['left_elbow', 'right_elbow', 'left_wrist', 'right_wrist']:
+                p_pose[k] = p_pose[k] * 0.9 + (p_pose['left_shoulder'] if 'left' in k else p_pose['right_shoulder']) * 0.1
             
-            target_anchor = np.array([p_s_mid[0], min_shoulder_y - lift_amount])
+            warped_cloth, warped_mask = self.get_tps_warp(cloth_img, c_mask, c_kp, p_pose, person_img.shape, (bx, by, bw, bh))
+
+        if warped_cloth is None: 
+            print("✗ Warping failed.")
+            return None
+
+        # 6. Specialized Refinements (Sequins, Length Limits)
+        if g_type == 'upper' and (10 not in unique_c_classes): # Shirts, but NOT coats
+            # Length Limit for Shirts: 15% of torso length below hips max
+            p_hip_y = (p_pose['left_hip'][1] + p_pose['right_hip'][1]) / 2.0
+            p_torso_h = p_hip_y - ((p_pose['left_shoulder'][1] + p_pose['right_shoulder'][1])/2.0)
+            max_bottom = p_hip_y + p_torso_h * 0.15
+            
+            # Find current bottom of warped mask
+            coords_w = cv2.findNonZero(warped_mask)
+            if coords_w is not None:
+                current_bottom = np.max(coords_w[:, 0, 1])
+                if current_bottom > max_bottom:
+                    # Crop mask at limit
+                    limit_y = int(max_bottom)
+                    warped_mask[limit_y:, :] = 0
+                    warped_cloth[limit_y:, :] = 0
+                    print(f"  ✂️ Shirt length limited to 15% below hips (Limit Y={limit_y})")
+
+        # 7. Masking & Protection
+        # Exclude face
+        ex = np.zeros(p_seg.shape, np.uint8)
+        if 'face_pts' in p_pose:
+            cv2.fillPoly(ex, [cv2.convexHull(np.array(p_pose['face_pts'], np.int32))], 255)
+        warped_mask = cv2.bitwise_and(warped_mask, cv2.bitwise_not(ex))
         
-        print(f"  📍 Target Anchor: ({int(target_anchor[0])}, {int(target_anchor[1])})")
-        print(f"  📍 Garment Anchor: ({int(g_anchor[0])}, {int(g_anchor[1])})")
+        # Upper Garment Protection for Lower Body
+        if g_type == 'lower':
+            upper_cloth_mask = np.isin(p_seg, [1, 2, 3, 4, 5, 6, 10]).astype(np.uint8) * 255
+            warped_mask = cv2.bitwise_and(warped_mask, cv2.bitwise_not(upper_cloth_mask))
+
+        # Hand Trimming (Prevent garment covering hands)
+        target_original = original_img if original_img is not None else person_img
+        try:
+            hand_mask = self.masker.get_hand_mask(target_original)
+            if hand_mask is not None:
+                warped_mask = cv2.bitwise_and(warped_mask, cv2.bitwise_not(hand_mask))
+        except: pass
+
+        # 8. Composite Blending
+        alpha = (cv2.GaussianBlur(warped_mask, (7,7), 0).astype(float) / 255.0)[..., None]
+        result = (warped_cloth * alpha + person_clean * (1 - alpha)).astype(np.uint8)
         
-        # Project source points to target space using unified scale
-        projected_p_kp = {}
-        for name, s_pt in c_kp.items():
-            if not isinstance(s_pt, np.ndarray) or s_pt.ndim != 1:
-                continue
-            dx = (s_pt[0] - g_anchor[0])
-            dy = (s_pt[1] - g_anchor[1])
-            # Unified proportional scaling (zero stretching)
-            p_pos = target_anchor + np.array([dx * scale, dy * scale])
-            projected_p_kp[name] = p_pos
+        # --- UNIFIED MASK GENERATION ---
+        print("  🎭 Generating Unified VTON Mask...")
+        unified_mask = self.masker.get_final_mask(target_original, warped_mask, mode='universal', clean_img=person_clean)
+
+        # -------------------------------------------------------------------------------------
+        # (Rest of the method remains similar but using the new unified_mask and warped_mask)
+        # -------------------------------------------------------------------------------------
+        # I will replace the remaining block in the next step to avoid matching issues.
 
         # Blend limbs (elbows/wrists) with actual person pose
         # We use a very high weight for person pose to "guide" the scaled sleeves onto the arms
