@@ -143,7 +143,7 @@ def analyze_cloth(image):
     # Ensure RGB
     image = image.convert("RGB")
     
-    query = "describe the outfit and do not mention background."
+    query = "Describe the outfit in this image, including detail about the sleeves, neckline, length/height, and pattern. Do not mention the background."
     
     print(f"🌙 Moondream: Analyzing cloth image...")
     start_time = time.time()
