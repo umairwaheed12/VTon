@@ -10,8 +10,13 @@ echo "==========================================="
 echo "TIP: To keep this running in the background, run this script inside a 'tmux' session."
 echo ""
 
+# 0. System Dependencies (including tmux)
+echo "Step 0: Checking system dependencies..."
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    apt-get update && apt-get install -y tmux
+fi
+
 # 1. Environment Check
-echo "Step 0: Pre-flight check..."
 if [[ "$PWD" == *"/VTon"* ]]; then
     echo "   Already in VTon directory."
 else
