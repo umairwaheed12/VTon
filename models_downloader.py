@@ -205,6 +205,35 @@ def download_models():
     else:
         print(f"✓ Already exists: {target_sam}")
 
+    # ------------------------------------------------------------------
+    # 6. BetterThanWords LoRA (SDXL)
+    # ------------------------------------------------------------------
+    print("\n[6/6] Downloading BetterThanWords LoRA (SDXL)...")
+    loras_dir = models_dir / "loras"
+    loras_dir.mkdir(exist_ok=True)
+    target_lora = loras_dir / "BetterThanWords-merged-SDXL-LoRA-v3.safetensors"
+
+    if not target_lora.exists():
+        try:
+            # Download from lllyasviel/fav_models
+            hf_hub_download(
+                repo_id="lllyasviel/fav_models",
+                filename="fav/BetterThanWords-merged-SDXL-LoRA-v3.safetensors",
+                local_dir=models_dir,
+                local_dir_use_symlinks=False
+            )
+            
+            source_lora = models_dir / "fav" / "BetterThanWords-merged-SDXL-LoRA-v3.safetensors"
+            if source_lora.exists():
+                shutil.move(str(source_lora), str(target_lora))
+                if (models_dir / "fav").exists():
+                    shutil.rmtree(models_dir / "fav")
+                print(f"   Moved to: {target_lora}")
+        except Exception as e:
+            print(f"⚠ LoRA download failed: {e}")
+    else:
+        print(f"✓ Already exists: {target_lora}")
+
     print("\n" + "="*50)
     print("ALL DOWNLOADS COMPLETE")
     print("="*50)
@@ -215,6 +244,7 @@ def download_models():
     print(f"3. MASKING_Onnx_MODEL_PATH: {target_path}")
     print(f"4. MOONDREAM_MODEL_PATH: {moondream_path}")
     print(f"5. SAM_MODEL_PATH: {target_sam}")
+    print(f"6. LORA_BTW_PATH: {target_lora}")
     print("="*50)
 
 if __name__ == "__main__":

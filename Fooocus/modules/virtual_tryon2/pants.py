@@ -1016,11 +1016,16 @@ class LBSPantsWarper:
             print("ℹ LBSPantsWarper: Using passed Clean Image.")
             person_clean = clean_img
         else:
-            # --- CLOTH REMOVAL (Integrated) ---
             try:
-                from cloth_remover import ClothRemover
+                from modules.virtual_tryon2.cloth_remover import ClothRemover
                 print("Initializing Cloth Remover (pants mode)...")
-                remover = ClothRemover(self.seg_model_path)
+                # Standard Path (from models_downloader.py)
+                remover_model_path = self.base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
+                # Fallback Path (Legacy/Local)
+                if not remover_model_path.exists():
+                    remover_model_path = self.base_dir / "models" / "segformer_b2_clothes.onnx"
+                
+                remover = ClothRemover(str(remover_model_path))
                 print("Removing original pants...")
                 person_clean, _ = remover.remove_pants(person)
             except Exception as e:

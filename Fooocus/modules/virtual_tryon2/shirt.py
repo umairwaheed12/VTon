@@ -542,14 +542,13 @@ class FixedShirtPantsWarper:
 
         # --- CLOTH REMOVAL (Integrated) ---
         try:
-            from cloth_remover import ClothRemover
-            # Assuming B2 model path is available or hardcoded? 
-            # Wrapper doesn't give us path easily here unless we pass it.
-            # But wait, self.session is B2 session, but we need path for ClothRemover init?
-            # Actually ClothRemover needs path. 
-            # Fix: We can assume default path or try to reuse session?
-            # ClothRemover takes path. Let's use the hardcoded path if possible or re-init.
-            remover_model_path = self.base_dir / "models" / "segformer_b2_clothes.onnx"
+            from modules.virtual_tryon2.cloth_remover import ClothRemover
+            # Standard Path (from models_downloader.py)
+            remover_model_path = self.base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
+            # Fallback Path (Legacy/Local)
+            if not remover_model_path.exists():
+                remover_model_path = self.base_dir / "models" / "segformer_b2_clothes.onnx"
+            
             print(f"Initializing Cloth Remover (shirt mode) from: {remover_model_path}")
             remover = ClothRemover(str(remover_model_path))
             print("Removing original shirt...")

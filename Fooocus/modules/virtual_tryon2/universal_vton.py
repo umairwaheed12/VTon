@@ -290,7 +290,13 @@ class UniversalGarmentWarper:
              person_clean = clean_img
         else:
             try:
-                remover_model_path = self.base_dir / "models" / "segformer_b2_clothes.onnx"
+                from modules.virtual_tryon2.cloth_remover import ClothRemover
+                # Standard Path (from models_downloader.py)
+                remover_model_path = self.base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
+                # Fallback Path (Legacy/Local)
+                if not remover_model_path.exists():
+                    remover_model_path = self.base_dir / "models" / "segformer_b2_clothes.onnx"
+                
                 print(f"Initializing Cloth Remover (universal mode) from: {remover_model_path}")
                 remover = ClothRemover(str(remover_model_path))
                 print("Removing ALL clothes...")
