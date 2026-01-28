@@ -1087,10 +1087,12 @@ with shared.gradio_root:
         def trigger_moondream_pre_generation(cloth_img, current_prompt):
             if cloth_img is None:
                 return current_prompt
-            print("🌙 UI: Generating... Triggering Moondream analysis...")
+            print("🌙 UI: Generating... Triggering Moondream analysis (Describe Outfit)...")
             description = moondream_helper.analyze_cloth(cloth_img)
             if description and not description.startswith("Error"):
-                return f"{description}"
+                # Append high-quality art boosters as requested
+                boosters = "detailed intricate artistic, symmetry, highly complex, enigmatic, clear, aesthetic, inspiring, thought, ambient light, illuminated, mystical, enhanced, magical, creative, dramatic, sublime, extremely inspirational, beautiful"
+                return f"{description}, {boosters}"
             return current_prompt
 
         generate_button.click(lambda: (gr.update(visible=True, interactive=True), gr.update(visible=True, interactive=True), gr.update(visible=False, interactive=False), [], True),

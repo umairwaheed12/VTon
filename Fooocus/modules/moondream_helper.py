@@ -149,21 +149,14 @@ def analyze_cloth(image):
     # Ensure RGB
     image = image.convert("RGB")
     
-    query = "Describe the outfit in this image, including detail about the sleeves, neckline, length/height, and pattern. Do not mention the background."
+    query = "describe the outfit"
     
-    print(f"🌙 Moondream: Analyzing cloth image...")
+    print(f"🌙 Moondream: Querying: {query}...")
     start_time = time.time()
     
     try:
-        device = next(model.parameters()).device
-        
         with torch.no_grad():
-            image_embeds = model.encode_image(image)
-            response = model.answer_question(
-                image_embeds=image_embeds,
-                question=query,
-                tokenizer=processor
-            )
+            response = model.query(image, query)["answer"]
             
         elapsed = time.time() - start_time
         description = response.strip()
