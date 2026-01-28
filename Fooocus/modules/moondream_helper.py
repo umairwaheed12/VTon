@@ -10,9 +10,9 @@ from pathlib import Path
 
 def check_and_install_dependencies():
     """Ensure strictly compatible dependencies are installed at runtime."""
-    # Moondream2 works best with transformers==4.39.0
+    # Moondream2 works best with modern transformers (no strict pinning for 2025 revision)
     required_packages = [
-        ("transformers", "4.39.0"),
+        ("transformers", None),
         ("accelerate", None),
         ("einops", None),
         ("timm", None)
@@ -97,8 +97,8 @@ def load_moondream():
     print(f"🌙 Moondream: Loading model from {model_id}...")
     
     try:
-        # Use a stable revision and trust remote code for custom layers
-        revision = "2024-04-02"
+        # Latest revision from HuggingFace (supports high-level .query, .caption)
+        revision = "2025-06-21"
         
         _processor = AutoProcessor.from_pretrained(
             model_id,
@@ -113,8 +113,9 @@ def load_moondream():
             model_id,
             trust_remote_code=True,
             torch_dtype=dtype,
-            revision=revision
-        ).to(device)
+            revision=revision,
+            device_map={"": device}
+        )
         
         _model.eval()
         print(f"✅ Moondream: Loaded successfully on {device}")
@@ -154,17 +155,12 @@ def analyze_cloth(image):
         "Provide reasoning (colors, fabric, style, fit, accessories)."
     )
     
-    print(f"🌙 Moondream: Querying (Reasoning Mode): {query}...")
+    print(f"🌙 Moondream: Querying (High-Level API): {query}...")
     start_time = time.time()
     
     try:
         with torch.no_grad():
-            image_embeds = model.encode_image(image)
-            response = model.answer_question(
-                image_embeds=image_embeds,
-                question=query,
-                tokenizer=processor
-            )
+            response = model.query(image, query)["answer"]
             
         elapsed = time.time() - start_time
         description = response.strip()
