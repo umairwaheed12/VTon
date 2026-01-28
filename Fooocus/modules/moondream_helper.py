@@ -148,6 +148,7 @@ def analyze_cloth(image):
         "Describe the garment type, color, fabric (e.g., silk, cotton, denim), "
         "pattern (e.g., floral, solid, striped), sleeve length, neckline, "
         "fit (e.g., oversized, slim), and any unique features like buttons or embroidery. "
+        "Do not describe any background elements. "
         "Provide the description in a single clear paragraph."
     )
     

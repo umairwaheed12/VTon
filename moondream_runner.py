@@ -109,7 +109,8 @@ except Exception as e:
 # ===============================
 query = (
     "Analyze the outfit in detail. "
-    "Provide reasoning(colors, fabric, style, fit, accessories), "
+    "Provide reasoning(colors, fabric, style, fit, accessories). "
+    "Do not describe any background elements. "
 )
 
 print(f"❓ Query: {query}")
