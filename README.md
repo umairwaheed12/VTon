@@ -1,4 +1,4 @@
-# FVTON - Virtual Try-On for Fooocus
+# VTon - Virtual Try-On for Fooocus
 
 This project integrates advanced Virtual Try-On and Masking improvements into Fooocus.
 
@@ -15,11 +15,11 @@ To deploy this project permanently on RunPod, follow these steps:
 1.  **Open RunPod Terminal**
 2.  **Start a persistent session (so it runs 24/7):**
     ```bash
-    tmux new -s fvton
+    tmux new -s vton
     ```
 3.  **Run the setup script:**
     ```bash
-    git clone https://github.com/umairwaheed12/FVTON.git && cd FVTON && bash runpod_setup.sh
+    git clone https://github.com/umairwaheed12/VTon.git && cd VTon && bash runpod_setup.sh
     ```
 4.  **Detach from session:** Press `Ctrl + B`, then `D`.
 

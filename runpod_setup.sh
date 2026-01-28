@@ -12,16 +12,16 @@ echo ""
 
 # 1. Environment Check
 echo "Step 0: Pre-flight check..."
-if [[ "$PWD" == *"/FVTON"* ]]; then
-    echo "   Already in FVTON directory."
+if [[ "$PWD" == *"/VTon"* ]]; then
+    echo "   Already in VTon directory."
 else
-    if [ -d "FVTON" ]; then
-        echo "   FVTON directory exists, entering..."
-        cd FVTON
+    if [ -d "VTon" ]; then
+        echo "   VTon directory exists, entering..."
+        cd VTon
     else
         echo "   Cloning FVTON repository..."
-        git clone https://github.com/umairwaheed12/FVTON.git
-        cd FVTON
+        git clone https://github.com/umairwaheed12/VTon.git
+        cd VTon
     fi
 fi
 
