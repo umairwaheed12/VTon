@@ -149,10 +149,7 @@ def analyze_cloth(image):
     # Ensure RGB
     image = image.convert("RGB")
     
-    query = (
-        "Analyze the outfit in detail. "
-        "Provide reasoning (colors, fabric, style, fit, accessories)."
-    )
+    query = "Describe only the outfit style, sleeves, neckline, color, and pattern. Be brief."
     
     print(f"🌙 Moondream: Querying (Reasoning Mode): {query}...")
     start_time = time.time()
