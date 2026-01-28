@@ -33,12 +33,18 @@ def check_and_install_dependencies():
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir"] + install_list)
             
-            # Resolve absolute path for restart because Fooocus changes CWD during startup
-            executable_path = os.path.abspath(sys.argv[0])
-            print(f"🔄 Moondream: Restarting application to apply changes (Path: {executable_path})...")
+            # Use module-relative path to find launch.py reliably
+            # moondream_helper is in /Fooocus/modules/, so its grandparent is the launcher dir
+            launcher_path = Path(__file__).resolve().parent.parent / "launch.py"
             
-            # Use absolute path to bypass CWD changes
-            os.execv(sys.executable, [sys.executable, executable_path] + sys.argv[1:])
+            if not launcher_path.exists():
+                # Fallback to sys.argv[0] if structure is different
+                launcher_path = Path(sys.argv[0]).resolve()
+
+            print(f"🔄 Moondream: Restarting application to apply changes (Launcher: {launcher_path})...")
+            
+            # Use absolute path to bypass any CWD changes made during Fooocus init
+            os.execv(sys.executable, [sys.executable, str(launcher_path)] + sys.argv[1:])
         except Exception as e:
             print(f"❌ Moondream: Failed to install dependencies: {e}")
 
