@@ -17,14 +17,15 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 fi
 
 # 1. Environment Check
-if [[ "$PWD" == *"/VTon"* ]]; then
-    echo "   Already in VTon directory."
+echo "Step 0: Pre-flight check..."
+if [ -f "models_downloader.py" ]; then
+    echo "   Already in project root."
 else
-    if [ -d "VTon" ]; then
+    if [ -d "VTon" ] && [ -f "VTon/models_downloader.py" ]; then
         echo "   VTon directory exists, entering..."
         cd VTon
     else
-        echo "   Cloning FVTON repository..."
+        echo "   Cloning VTon repository..."
         git clone https://github.com/umairwaheed12/VTon.git
         cd VTon
     fi

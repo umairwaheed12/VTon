@@ -33,20 +33,31 @@ def check_and_install_dependencies():
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir"] + install_list)
             
-            # Use module-relative path to find launch.py reliably
-            # moondream_helper is in /Fooocus/modules/, so its grandparent is the launcher dir
-            launcher_path = Path(__file__).resolve().parent.parent / "launch.py"
+            # Hyper-resilient search for launch.py
+            # Start from this file's directory and walk up
+            current_path = Path(__file__).resolve()
+            launcher_path = None
             
-            if not launcher_path.exists():
-                # Fallback to sys.argv[0] if structure is different
-                launcher_path = Path(sys.argv[0]).resolve()
+            # Check up to 5 levels up for launch.py
+            for _ in range(5):
+                check_path = current_path.parent / "launch.py"
+                if check_path.exists():
+                    launcher_path = check_path
+                    break
+                current_path = current_path.parent
 
-            print(f"🔄 Moondream: Restarting application to apply changes (Launcher: {launcher_path})...")
+            # Fallback to sys.argv[0] if search fails
+            if not launcher_path:
+                 launcher_path = Path(sys.argv[0]).resolve()
+
+            print(f"🔄 Moondream: Restarting application to apply changes (Discovery: {launcher_path})...")
             
-            # Use absolute path to bypass any CWD changes made during Fooocus init
+            # Launch using absolute path to bypass any directory changes
             os.execv(sys.executable, [sys.executable, str(launcher_path)] + sys.argv[1:])
         except Exception as e:
-            print(f"❌ Moondream: Failed to install dependencies: {e}")
+            print(f"❌ Moondream: Failed to install/restart: {e}")
+            import traceback
+            traceback.print_exc()
 
 # Run check immediately on import
 check_and_install_dependencies()
