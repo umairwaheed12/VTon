@@ -215,19 +215,17 @@ def download_models():
 
     if not target_lora.exists():
         try:
-            # Download from lllyasviel/fav_models
+            # Download from AiWise/BetterThanWords-merged-SDXL-LoRA-v3
             hf_hub_download(
-                repo_id="lllyasviel/fav_models",
-                filename="fav/BetterThanWords-merged-SDXL-LoRA-v3.safetensors",
+                repo_id="AiWise/BetterThanWords-merged-SDXL-LoRA-v3",
+                filename="BetterThanWords-merged-SDXL-LoRA-v3.safetensors",
                 local_dir=models_dir,
                 local_dir_use_symlinks=False
             )
             
-            source_lora = models_dir / "fav" / "BetterThanWords-merged-SDXL-LoRA-v3.safetensors"
+            source_lora = models_dir / "BetterThanWords-merged-SDXL-LoRA-v3.safetensors"
             if source_lora.exists():
                 shutil.move(str(source_lora), str(target_lora))
-                if (models_dir / "fav").exists():
-                    shutil.rmtree(models_dir / "fav")
                 print(f"   Moved to: {target_lora}")
         except Exception as e:
             print(f"⚠ LoRA download failed: {e}")
