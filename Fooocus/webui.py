@@ -57,12 +57,9 @@ def generate_clicked(task: worker.AsyncTask):
         if len(task.yields) > 0:
             flag, product = task.yields.pop(0)
             if flag == 'preview':
-
-                # help bad internet connection by skipping duplicated preview
-                if len(task.yields) > 0:  # if we have the next item
-                    if task.yields[0][0] == 'preview':   # if the next item is also a preview
-                        # print('Skipped one preview for better internet connection.')
-                        continue
+                # Skip duplicate previews to keep UI synchronized with terminal (especially on fast GPUs)
+                while len(task.yields) > 0 and task.yields[0][0] == 'preview':
+                    flag, product = task.yields.pop(0)
 
                 percentage, title, image = product
                 yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
@@ -71,6 +68,10 @@ def generate_clicked(task: worker.AsyncTask):
                     gr.update(visible=False), \
                     gr.update()
             if flag == 'results':
+                # Skip intermediate results to catch up with worker
+                while len(task.yields) > 0 and task.yields[0][0] == 'results':
+                    flag, product = task.yields.pop(0)
+
                 yield gr.update(visible=True), \
                     gr.update(visible=True), \
                     gr.update(visible=True, value=product), \
