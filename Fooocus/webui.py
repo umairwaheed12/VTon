@@ -82,7 +82,7 @@ def generate_clicked(task: worker.AsyncTask):
                     gr.update(visible=True), \
                     gr.update(), \
                     gr.update(visible=False), \
-                    gr.update(value=product, visible=True)
+                    gr.update(value=product, visible=False)
             if flag == 'finish':
                 if not args_manager.args.disable_enhance_output_sorting:
                     product = sort_enhance_images(product, task)
@@ -187,7 +187,7 @@ with shared.gradio_root:
             with gr.Row():
                 with gr.Column(scale=17):
                     prompt = gr.Textbox(show_label=False, placeholder="Type prompt here or paste parameters.", elem_id='positive_prompt',
-                                        autofocus=True, lines=3)
+                                        autofocus=True, lines=3, visible=False)
 
                     default_prompt = modules.config.default_prompt
                     if isinstance(default_prompt, str) and default_prompt != '':
@@ -217,9 +217,9 @@ with shared.gradio_root:
                     stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask, queue=False, show_progress=False, _js='cancelGenerateForever')
                     skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=False, show_progress=False)
             with gr.Row(elem_classes='advanced_check_row'):
-                input_image_checkbox = gr.Checkbox(label='Input Image', value=modules.config.default_image_prompt_checkbox, container=False, elem_classes='min_check')
+                input_image_checkbox = gr.Checkbox(label='Input Image', value=modules.config.default_image_prompt_checkbox, container=False, elem_classes='min_check', visible=False)
                 enhance_checkbox = gr.Checkbox(label='Enhance', value=modules.config.default_enhance_checkbox, container=False, elem_classes='min_check', visible=False)
-                advanced_checkbox = gr.Checkbox(label='Advanced', value=modules.config.default_advanced_checkbox, container=False, elem_classes='min_check')
+                advanced_checkbox = gr.Checkbox(label='Advanced', value=modules.config.default_advanced_checkbox, container=False, elem_classes='min_check', visible=False)
             with gr.Row(visible=modules.config.default_image_prompt_checkbox) as image_input_panel:
                 with gr.Tabs(selected='inpaint_tab', elem_id='input_image_tabs'):
                     with gr.Tab(label='Upscale or Variation', id='uov_tab', visible=False) as uov_tab:
@@ -283,7 +283,7 @@ with shared.gradio_root:
 
                                     # Virtual Try-On always enabled (checkbox removed)
                                     inpaint_mode = gr.Radio(choices=modules.flags.vton_options, value=modules.flags.vton_auto, label='Method')
-                                    vton_generated_mask = grh.Image(label='VTON Generated Mask', type='filepath', height=500, visible=True, show_label=True, interactive=False)
+                                    vton_generated_mask = grh.Image(label='VTON Generated Mask', type='filepath', height=500, visible=False, show_label=True, interactive=False)
                                 inpaint_additional_prompt = gr.Textbox(placeholder="Describe what you want to inpaint.", elem_id='inpaint_additional_prompt', label='Inpaint Additional Prompt', visible=False)
                                 with gr.Column(visible=False):
                                     outpaint_selections = gr.CheckboxGroup(choices=['Left', 'Right', 'Top', 'Bottom'], value=[], label='Outpaint Direction')
