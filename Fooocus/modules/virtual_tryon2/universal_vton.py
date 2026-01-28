@@ -38,8 +38,8 @@ class UniversalGarmentWarper:
         else:
             print("⚠ MediaPipe not available. Using segmentation-based pose estimation.")
             
-        # Discover project root (4 levels up from Modules/Virtual_Tryon2)
-        self.base_dir = Path(__file__).resolve().parents[3]
+        # Discover project root (2 levels up from Modules/Virtual_Tryon2 finds Fooocus root)
+        self.base_dir = Path(__file__).resolve().parents[2]
         
         # Unified Masking Helper
         sam_path = self.base_dir / "models" / "sam" / "sam_vit_b_01ec64.pth"
@@ -981,11 +981,15 @@ def main():
     parser.add_argument("--out", type=str, default="./output_test", help="Output directory")
     args = parser.parse_args()
 
-    # Discover project root
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    # Discover project root (2 levels up find Fooocus root)
+    base_dir = Path(__file__).resolve().parents[2]
     
     # Standardized paths from models_downloader.py
-    B2_MODEL = base_dir / "models" / "segformer_b2_clothes.onnx"
+    B2_MODEL = base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
+    # Fallback for legacy
+    if not B2_MODEL.exists():
+        B2_MODEL = base_dir / "models" / "segformer_b2_clothes.onnx"
+        
     B3_MODEL = base_dir / "models" / "segformer-b3-fashion"
     
     # Check if models exist

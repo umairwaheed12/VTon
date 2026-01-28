@@ -62,8 +62,9 @@ def download_models():
     Download all models required for gradio_app.py, masking.py, and dresss.py.
     """
     base_dir = Path(__file__).parent.absolute()
-    models_dir = base_dir / "models"
-    models_dir.mkdir(exist_ok=True)
+    # Align with Fooocus standard structure to prevent double downloads
+    models_dir = base_dir / "Fooocus" / "models"
+    models_dir.mkdir(exist_ok=True, parents=True)
 
     print(f"Downloading models to: {models_dir}")
 

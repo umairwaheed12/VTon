@@ -32,7 +32,16 @@ else
 fi
 
 # 2. Run the environment setup and model download
-echo "Step 1: Setting up environment and downloading models..."
+echo "Step 1: Migrating existing models (if any) and downloading missing ones..."
+if [ -d "models" ]; then
+    echo "   Found legacy 'models' directory at root. Moving to 'Fooocus/models' to prevent re-downloads..."
+    mkdir -p Fooocus/models
+    # Move contents carefully. Use cp -rl + rm to handle cross-device move if needed, 
+    # but on RunPod standard mv within same volume is best.
+    cp -rl models/* Fooocus/models/ 2>/dev/null || mv models/* Fooocus/models/ 2>/dev/null
+    rm -rf models
+    echo "   ✅ Migration complete."
+fi
 python3 models_downloader.py
 
 # 3. Fix ONNX Runtime GPU (CUDNN) library discovery

@@ -12,8 +12,8 @@ from modules.virtual_tryon2.artificial_skin_helper import ArtificialSkinHelper
 
 class LBSPantsWarper:
     def __init__(self, seg_model_path, b3_path=None):
-        # Discover project root (4 levels up from Modules/Virtual_Tryon2)
-        self.base_dir = Path(__file__).resolve().parents[3]
+        # Discover project root (2 levels up find Fooocus root)
+        self.base_dir = Path(__file__).resolve().parents[2]
         self.seg_model_path = seg_model_path
         self.b3_path = b3_path if b3_path else self.base_dir / "models" / "segformer-b3-fashion"
         self._init_segformer()
@@ -1314,11 +1314,15 @@ def POSE_INT(pt):
     return np.array([int(pt[0]), int(pt[1])])
 
 def main():
-    # Discover project root (4 levels up from Modules/Virtual_Tryon2)
-    base_dir = Path(__file__).resolve().parents[3]
+    # Discover project root (2 levels up from Modules/Virtual_Tryon2 finds Fooocus root)
+    base_dir = Path(__file__).resolve().parents[2]
     
     # Standardized paths from models_downloader.py
     SEG = base_dir / "models" / "SegFormerB2Clothes" / "segformer_b2_clothes.onnx"
+    # Fallback for legacy
+    if not SEG.exists():
+        SEG = base_dir / "models" / "segformer_b2_clothes.onnx"
+        
     B3 = base_dir / "models" / "segformer-b3-fashion"
     
     # Check if models exist
