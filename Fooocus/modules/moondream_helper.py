@@ -2,6 +2,11 @@ import subprocess
 import sys
 import os
 import importlib.metadata
+import torch
+import time
+from PIL import Image
+from transformers import AutoModelForCausalLM, AutoProcessor
+from pathlib import Path
 
 def check_and_install_dependencies():
     """Ensure strictly compatible dependencies are installed at runtime."""
@@ -33,27 +38,25 @@ def check_and_install_dependencies():
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir"] + install_list)
             
-            # Hyper-resilient search for launch.py
-            # Start from this file's directory and walk up
-            current_path = Path(__file__).resolve()
-            launcher_path = None
+            # Simple and robust discovery for launch.py relative to this file
+            # /Fooocus/modules/moondream_helper.py -> /Fooocus/launch.py
+            current_file = Path(__file__).resolve()
+            launcher_path = current_file.parent.parent / "launch.py"
             
-            # Check up to 5 levels up for launch.py
-            for _ in range(5):
-                check_path = current_path.parent / "launch.py"
-                if check_path.exists():
-                    launcher_path = check_path
-                    break
-                current_path = current_path.parent
+            if not launcher_path.exists():
+                # Fallback: search up
+                temp_p = current_file
+                for _ in range(3):
+                    if (temp_p.parent / "launch.py").exists():
+                        launcher_path = temp_p.parent / "launch.py"
+                        break
+                    temp_p = temp_p.parent
 
-            # Fallback to sys.argv[0] if search fails
-            if not launcher_path:
-                 launcher_path = Path(sys.argv[0]).resolve()
-
-            print(f"🔄 Moondream: Restarting application to apply changes (Discovery: {launcher_path})...")
+            print(f"🔄 Moondream: Restarting application to apply changes...")
+            print(f"   Launcher found at: {launcher_path}")
             
-            # Launch using absolute path to bypass any directory changes
-            os.execv(sys.executable, [sys.executable, str(launcher_path)] + sys.argv[1:])
+            # Use absolute path for both executable and script to be safe
+            os.execv(sys.executable, [sys.executable, str(launcher_path.absolute())] + sys.argv[1:])
         except Exception as e:
             print(f"❌ Moondream: Failed to install/restart: {e}")
             import traceback
@@ -62,12 +65,6 @@ def check_and_install_dependencies():
 # Run check immediately on import
 check_and_install_dependencies()
 
-import torch
-import time
-from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
-from pathlib import Path
-
 # Module-level globals for lazy loading
 _model = None
 _processor = None
@@ -75,6 +72,7 @@ _processor = None
 def get_moondream_model_path():
     """Locate the Moondream2 model directory."""
     # Look for the 'models' folder at the project root
+    # moondream_helper is in /Fooocus/modules/, so its parent's parent is the project root (usually /VTon)
     base_dir = Path(__file__).resolve().parent.parent.parent
     local_path = base_dir / "models" / "moondream2"
     
