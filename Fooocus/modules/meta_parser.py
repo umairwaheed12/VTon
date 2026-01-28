@@ -180,7 +180,7 @@ def get_inpaint_engine_version(key: str, fallback: str | None, source_dict: dict
 def get_inpaint_method(key: str, fallback: str | None, source_dict: dict, results: list, default=None) -> str | None:
     try:
         h = source_dict.get(key, source_dict.get(fallback, default))
-        assert isinstance(h, str) and h in modules.flags.inpaint_options
+        assert isinstance(h, str) and (h in modules.flags.inpaint_options or h in modules.flags.vton_options)
         results.append(h)
         for i in range(modules.config.default_enhance_tabs):
             results.append(h)

@@ -90,8 +90,17 @@ inpaint_mask_sam_model = ['vit_b', 'vit_l', 'vit_h']
 
 inpaint_engine_versions = ['None', 'v1', 'v2.5', 'v2.6']
 inpaint_option_default = 'Inpaint or Outpaint (default)'
-inpaint_option_detail = 'Improve Detail (face, hand, eyes, etc.)'
-inpaint_option_modify = 'Modify Content (add objects, change background, etc.)'
+inpaint_option_detail = 'Improve Detail (face, hand, etc.)'
+inpaint_option_modify = 'Modify Content (add objects, etc.)'
+
+vton_upper = "Upper Clothing (Shirt, Top, Outwear)"
+vton_lower = "Lower Clothing (Pants, Shorts, Skirt)"
+vton_overall = "Overall (Dress, Jumpsuit, or Full-set Universal)"
+vton_auto = "Auto-Detect (Recommend)"
+vton_outfit = "Upper and Lower Cloth (Sequential Workflow)"
+
+vton_options = [vton_upper, vton_lower, vton_overall, vton_auto, vton_outfit]
+
 inpaint_options = [inpaint_option_default, inpaint_option_detail, inpaint_option_modify]
 
 describe_type_photo = 'Photograph'

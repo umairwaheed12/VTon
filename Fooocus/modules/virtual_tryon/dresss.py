@@ -23,13 +23,10 @@ class ShoulderHeightDressWarper:
         try:
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            print(f"DEBUG: ORT Available Providers: {ort.get_available_providers()}")
             self.session = ort.InferenceSession(str(seg_model_path), sess_options=sess_opts, providers=providers)
             print(f"DressWarper ONNX Runtime Providers: {self.session.get_providers()}")
-        except Exception as e:
-            print(f"Warning: Failed to load ONNX with CUDA, falling back to CPU. Error: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            print("Warning: Failed to load ONNX with CUDA, falling back to CPU")
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             self.session = ort.InferenceSession(str(seg_model_path), sess_options=sess_opts, providers=['CPUExecutionProvider'])
@@ -1518,6 +1515,6 @@ if __name__ == "__main__":
 
     warper.process(
         r"c:\Users\PC\Downloads\232fa7aa-4854-41d8-9c78-576430912fd81723280009308-FableStreet-LivIn-Bootcut-Trousers-5211723280009216-6.jpg", 
-        r"c:\Users\PC\Downloads\WhatsApp Image 2026-01-02 at 11.15.29 PM (1).jpeg",
+        r"c:\Users\PC\Downloads\pink-tissue-semi-stitched-bridal-lehenga-with-heavy-sequin-moti-and-coding-embroidery-work_6_750x.webp",
         r"C:\Users\PC\.gemini\antigravity\scratch\output1\FINAL_DRESS12.png"
     )

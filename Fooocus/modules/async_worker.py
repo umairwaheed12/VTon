@@ -1,5 +1,4 @@
 import threading
-import time
 
 from extras.inpaint_mask import generate_mask_from_image, SAMOptions
 from modules.patch import PatchSettings, patch_settings, patch_all
@@ -7,45 +6,6 @@ import modules.config
 
 patch_all()
 
-
-# Global cache for VTON models to prevent re-loading on every task
-vton_warper_instance = None
-vton_masker_instance = None
-vton_lock = threading.Lock()
-
-def preload_vton_models():
-    """
-    Explicitly load VTON models at startup to avoid delay during first generation.
-    """
-    global vton_warper_instance, vton_masker_instance
-    import os
-    from modules.virtual_tryon import ShoulderHeightDressWarper, ClothMasker
-    
-    print("\n[VTON] ⏳ Pre-loading Virtual Try-On models...")
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        seg_model_path = os.path.join(base_dir, 'models', 'segformer_b2_clothes.onnx')
-        saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
-        onnx_model_path = os.path.join(base_dir, 'models', 'humanparsing', 'parsing_lip.onnx')
-        
-        with vton_lock:
-            if vton_warper_instance is None:
-                print("[VTON] Loading Dress Warper...")
-                vton_warper_instance = ShoulderHeightDressWarper(
-                    seg_model_path=seg_model_path,
-                    saree_model_path=saree_model_path
-                )
-            
-            if vton_masker_instance is None:
-                print("[VTON] Loading Cloth Masker...")
-                vton_masker_instance = ClothMasker(
-                    model_path=saree_model_path,
-                    onnx_model_path=onnx_model_path,
-                    b2_onnx_path=seg_model_path
-                )
-        print("[VTON] ✅ Models pre-loaded successfully.\n")
-    except Exception as e:
-        print(f"[VTON] ❌ Pre-loading failed: {e}\n")
 
 class AsyncTask:
     def __init__(self, args):
@@ -55,7 +15,6 @@ class AsyncTask:
         import args_manager
 
         self.args = args.copy()
-        self.start_time = time.perf_counter()
         self.yields = []
         self.results = []
         self.last_stop = False
@@ -133,8 +92,12 @@ class AsyncTask:
         self.debugging_inpaint_preprocessor = args.pop()
         self.inpaint_disable_initial_latent = args.pop()
         self.inpaint_engine = args.pop()
+        if self.inpaint_engine not in modules.flags.inpaint_engine_versions:
+             print(f"[Worker] Warning: Invalid inpaint_engine '{self.inpaint_engine}', defaulting to 'v2.6'")
+             self.inpaint_engine = 'v2.6'
         self.inpaint_strength = args.pop()
         self.inpaint_respective_field = args.pop()
+        self.vton_mode_label = args.pop()
         # Advanced masking checkbox removed - always enabled (mask generation column always visible)
         self.inpaint_advanced_masking_checkbox = True
         self.invert_mask_checkbox = args.pop()
@@ -258,17 +221,15 @@ def worker():
         print(e)
 
     def progressbar(async_task, number, text):
-        elapsed = time.perf_counter() - async_task.start_time
-        display_text = f'Processing... {elapsed:.1f}s'
-        print(f'[Fooocus] {display_text} (original: {text})')
-        async_task.yields.append(['preview', (number, display_text, None)])
+        print(f'[Fooocus] {text}')
+        async_task.yields.append(['preview', (number, text, None)])
 
     def yield_result(async_task, imgs, progressbar_index, black_out_nsfw, censor=True, do_not_show_finished_images=False):
         if not isinstance(imgs, list):
             imgs = [imgs]
 
         if censor and (modules.config.default_black_out_nsfw or black_out_nsfw):
-            progressbar(async_task, progressbar_index, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+            progressbar(async_task, progressbar_index, 'Checking for NSFW content ...')
             imgs = default_censor(imgs)
 
         async_task.results = async_task.results + imgs
@@ -361,7 +322,7 @@ def worker():
             imgs = [inpaint_worker.current_task.post_process(x) for x in imgs]
         current_progress = int(base_progress + (100 - preparation_steps) / float(all_steps) * steps)
         if modules.config.default_black_out_nsfw or async_task.black_out_nsfw:
-            progressbar(async_task, current_progress, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+            progressbar(async_task, current_progress, 'Checking for NSFW content ...')
             imgs = default_censor(imgs)
         progressbar(async_task, current_progress, f'Saving image {current_task_id + 1}/{total_count} to system ...')
         img_paths = save_and_log(async_task, height, imgs, task, use_expansion, width, loras, persist_image)
@@ -922,7 +883,7 @@ def worker():
                 try:
                     import cv2
                     import numpy as np
-                    from modules.virtual_tryon import ShoulderHeightDressWarper, ClothMasker
+                    # Legacy VTON imports removed
                     import os
                     import tempfile
                     from pathlib import Path
@@ -938,151 +899,118 @@ def worker():
                         print("[Virtual Try-On] Invalid cloth image format, skipping virtual try-on")
                         raise ValueError("Invalid cloth image")
                     
-                    progressbar(async_task, 1, 'Processing...')
+                    progressbar(async_task, 1, 'Processing Virtual Try-On...')
                     
-                    # Get model paths
+                    # Initialize VTONCoordinator
+                    from modules.virtual_tryon2.vton_coordinator import VTONCoordinator
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     seg_model_path = os.path.join(base_dir, 'models', 'segformer_b2_clothes.onnx')
                     saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
-                    onnx_model_path = os.path.join(base_dir, 'models', 'humanparsing', 'parsing_lip.onnx')
-                    
-                    # Initialize warper and masker (Use Global Cache to avoid reloading)
-                    global vton_warper_instance, vton_masker_instance
-                    
-                    with vton_lock:
-                        if vton_warper_instance is None or vton_masker_instance is None:
-                            # Note: These paths are used for fallback if pre-loading failed
-                            progressbar(async_task, 1, 'Loading Virtual Try-On models (Fallback)...')
-                            if vton_warper_instance is None:
-                                vton_warper_instance = ShoulderHeightDressWarper(
-                                    seg_model_path=seg_model_path,
-                                    saree_model_path=saree_model_path
-                                )
-                            if vton_masker_instance is None:
-                                vton_masker_instance = ClothMasker(
-                                    model_path=saree_model_path,
-                                    onnx_model_path=onnx_model_path,
-                                    b2_onnx_path=seg_model_path
-                                )
-                    
-                    warper = vton_warper_instance
-                    masker = vton_masker_instance
+                    coordinator = VTONCoordinator(seg_model_path, saree_model_path)
 
-                    # Store paths for Stage 4 refinement if needed
-                    async_task.masking_seg_model_path = seg_model_path
-                    async_task.masking_saree_model_path = saree_model_path
-                    async_task.masking_onnx_model_path = onnx_model_path
+                    # Map UI label to mode
+                    vton_mode = 'auto'
+                    if async_task.vton_mode_label == flags.vton_upper: vton_mode = 'upper'
+                    elif async_task.vton_mode_label == flags.vton_lower: vton_mode = 'lower'
+                    elif async_task.vton_mode_label == flags.vton_overall: vton_mode = 'overall'
+                    elif async_task.vton_mode_label == flags.vton_outfit: vton_mode = 'outfit'
                     
-                    # Prepare Input Images (In-Memory)
-                    # Person Image
+                    print(f"\n[Coordinator] Selected mode from UI: {vton_mode}")
+
+                    # Create temporary directory for processing
+                    temp_dir = tempfile.mkdtemp(prefix='fooocus_vton_')
+                    
+                    # Save person image to temp file (BGR format for coordinator)
+                    person_path = os.path.join(temp_dir, 'input_person.png')
                     person_bgr = cv2.cvtColor(inpaint_image, cv2.COLOR_RGB2BGR) if inpaint_image.shape[2] == 3 else inpaint_image
+                    cv2.imwrite(person_path, person_bgr)
                     
-                    # Cloth Image
+                    # Handle cloth image - could be numpy array or dict
                     if isinstance(async_task.cloth_input_image, dict):
                         cloth_image = async_task.cloth_input_image.get('image', async_task.cloth_input_image)
                     else:
                         cloth_image = async_task.cloth_input_image
+                    
+                    # Save cloth image to temp file (BGR format for coordinator)
+                    cloth_path = os.path.join(temp_dir, 'input_cloth.png')
+                    if isinstance(cloth_image, np.ndarray):
+                        cloth_bgr = cv2.cvtColor(cloth_image, cv2.COLOR_RGB2BGR) if cloth_image.shape[2] == 3 else cloth_image
+                    else:
+                        cloth_bgr = cloth_image
+                    cv2.imwrite(cloth_path, cloth_bgr)
+                    
+                    # Run VTON Coordinator
+                    progressbar(async_task, 1, f'Running Virtual Try-On ({vton_mode})...')
+                    dress_output_path = os.path.join(temp_dir, 'final_result.png')
+                    final_mask_path = os.path.join(temp_dir, 'final_mask.png')
+                    
+                    # Coordinator handles everything
+                    coordinator.process(person_path, cloth_path, temp_dir, mode=vton_mode)
+                    
+                    if not os.path.exists(dress_output_path):
+                        raise FileNotFoundError(f"Virtual Try-On failed to produce warped image at {dress_output_path}")
+                    if not os.path.exists(final_mask_path):
+                        raise FileNotFoundError(f"Virtual Try-On failed to produce final mask at {final_mask_path}")
+                    
+                    # Load the dress result image (this becomes the inpaint input)
+                    dress_result = cv2.imread(dress_output_path)
+                    dress_result_rgb = cv2.cvtColor(dress_result, cv2.COLOR_BGR2RGB)
+                    
+                    # Load the final mask (this becomes the advanced masking mask)
+                    if os.path.exists(final_mask_path):
+                        final_mask_img = cv2.imread(final_mask_path, cv2.IMREAD_GRAYSCALE)
+                        if final_mask_img is None:
+                            raise FileNotFoundError("Could not load final mask image")
                         
-                    cloth_bgr = cv2.cvtColor(cloth_image, cv2.COLOR_RGB2BGR) if cloth_image.shape[2] == 3 else cloth_image
-                    
-                    # --- Step 1: Dress Warping (Zero-IO) ---
-                    progressbar(async_task, 1, 'Warping cloth onto person (In-Memory)...')
-                    
-                    # Pass raw numpy arrays directly. Output path is None -> returns numpy arrays
-                    dress_result_bgr, visualization_mask, warp_mask = warper.process(
-                        person_input=person_bgr, 
-                        cloth_input=cloth_bgr, 
-                        out_path_final=None
-                    )
-                    
-                    if dress_result_bgr is None:
-                        raise ValueError("Dress warping failed (returned None)")
-
-                    # --- Step 2: Mask Generation (Zero-IO) ---
-                    progressbar(async_task, 1, 'Generating final mask (In-Memory)...')
-                    
-                    # Pass processed dress image directly. Output path is None -> returns numpy arrays
-                    # Returns: (result_image, mask_to_save, mask_v3)
-                    masking_result_bgr, final_mask_img, mask_v3 = masker.process(
-                        image=dress_result_bgr,
-                        output_path=None,
-                        border_thickness=15,
-                        overlay_color=(0, 0, 255),
-                        alpha=0.5,
-                        warp_mask_path=None, # Not used in Zero-IO flow, passed as arg below if needed? 
-                        # Actually masker.process treats warp_mask_path as a path. 
-                        # We need to check if we can pass the mask object directly or if we need to modify masker.py signature.
-                        # Looking at masker.py code:
-                        # process(self, input_image_path=None, output_path=None, ..., warp_mask_path=None, image=None)
-                        # inside process:
-                        # if warp_mask_path: warp_mask = cv2.imread(...)
-                        # IT DOES NOT ACCEPT RAW WARP MASK!
-                        # But wait, looking at dresss.py, it returns warp_mask.
-                        # I should modify masker.py to accept warp_mask object, OR save it to a temp file if absolutely necessary.
-                        # BUT user wants Zero-IO.
-                        # Let's check masker.py again. I just wrote it.
-                        # In Step 2003 view:
-                        # if warp_mask_path: ... warp_mask = cv2.imread...
-                        # There is NO arg for raw warp_mask.
-                        # I MUST UPDATE masking.py first to accept `warp_mask_image` arg!
-                        # For now, I'll pass None and skip the connection logic, or quick-patch masking.py
-                        # Actually I can pass None for now as warp_mask from dresss.py acts as a fallback connection guide.
-                        # Wait, the `dresss.py` warp_mask is critical for gap filling.
-                        # I will assume `masker.process` will be updated or accept it.
-                        # Re-reading `masker.py`: line 639: `image=None`.
-                        # It accepts `image` but not `warp_mask_image`.
-                        # I will add `warp_mask_image` to masker.py signature in the next step.
-                        # For this step, I will construct the call expecting it.
+                        # Resize mask to match image dimensions if needed
+                        if final_mask_img.shape[:2] != dress_result_rgb.shape[:2]:
+                            final_mask_img = cv2.resize(final_mask_img, (dress_result_rgb.shape[1], dress_result_rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
                         
-                        # Wait, to be safe and avoid breaking, I will skip passing warp_mask for this specific call 
-                        # until I fix masker.py signature.
-                        # BUT this replacement is huge. I should probably fix masker.py FIRST.
-                        # However, I am in the middle of editing async_worker.py.
-                        # I will write the code to pass `warp_mask_image=warp_mask` and rely on python's kwargs if I update signature.
-                        # OR I can use a temp workaround. 
-                        # Actually, looking at `temp_async_worker.py` from Step 1957 (memory):
-                        # It passed `warp_mask=warp_mask`
-                        # So I will assume I will add `warp_mask` argument to masker.py
+                        # Replace inputs for inpainting
+                        inpaint_image = dress_result_rgb
+                        inpaint_mask = final_mask_img
                         
-                        warp_mask_image=warp_mask, # Will add this arg to masker
-                        generate_v3=False
-                    )
+                        # Update the inpaint_input_image dict
+                        async_task.inpaint_input_image = {
+                            'image': inpaint_image,
+                            'mask': np.stack([inpaint_mask, inpaint_mask, inpaint_mask], axis=2)
+                        }
 
-                    # --- Step 3: Prepare Inpaint Inputs ---
-                    # Convert BGR back to RGB for Fooocus
-                    final_dress_rgb = cv2.cvtColor(dress_result_bgr, cv2.COLOR_BGR2RGB)
-                    
-                    # Prepare Inpaint Image (The warped dress on person)
-                    async_task.inpaint_input_image = final_dress_rgb
-                    
-                    # Prepare Inpaint Mask (Convert single channel to 3-channel stack)
-                    # final_mask_img is uint8 0-255
-                    inpaint_mask = final_mask_img.copy()
-                    
-                    # Handle V3 mask if requested (though generate_v3=False above)
-                    if masker.mp_limb_mask is not None:
-                         # Optional: Blend/Refine logic here
-                         pass
+                        # User Request: Advanced Masking Features should be the mask produced
+                        # We populate inpaint_mask_image_upload with the final mask to satisfy this requirement
+                        # and ensure downstream logic treats it as the authoritative advanced mask.
+                        async_task.inpaint_mask_image_upload = np.stack([inpaint_mask, inpaint_mask, inpaint_mask], axis=2)
+                        
+                        # Yield the mask for UI display
+                        async_task.yields.append(('vton_mask', final_mask_path))
 
-                    async_task.inpaint_mask_image_upload = {
-                        'image': np.stack([inpaint_mask, inpaint_mask, inpaint_mask], axis=2)
-                    }
-
-                    virtual_tryon_success = True
-                    print("[Virtual Try-On] ✅ Preprocessing complete (In-Memory). Starting Inpaint...")
-
+                        # Store masking.py results for later use in Improve Detail pass
+                        async_task.masking_mask_path = final_mask_path
+                        # async_task.masking_mask_v2_path = final_mask_v2_path # Not generated in this flow
+                        async_task.masking_temp_dir = temp_dir
+                        async_task.use_masking_improve_detail = False
+                        async_task.should_enhance = False  # Disable all enhancement passes for VTON
+                        
+                        # Mark virtual try-on as successful
+                        virtual_tryon_success = True
+                        progressbar(async_task, 1, 'Virtual Try-On complete, proceeding with inpainting...')
+                        
+                        # Cleanup temp files (optional, can keep for debugging)
+                        # shutil.rmtree(temp_dir, ignore_errors=True)
+                    else:
+                        raise FileNotFoundError(f"Final mask file not found at {final_mask_path}")
+                        
                 except Exception as e:
-                    print(f"[Virtual Try-On] ❌ Error: {e}")
+                    print(f"[Virtual Try-On] Error: {e}")
                     import traceback
                     traceback.print_exc()
+                    print("[Virtual Try-On] Falling back to standard inpainting")
                     virtual_tryon_success = False
-            
-            # Standard Inpaint Flow continues below...
-            if not virtual_tryon_success and async_task.enable_virtual_tryon and async_task.cloth_input_image is not None:
-                 print("[Virtual Try-On] Fallback: Proceeding with standard generation (VTON failed).")
 
             # Skip advanced masking if virtual try-on was successful (we already have the final mask)
-            if async_task.inpaint_advanced_masking_checkbox and not virtual_tryon_success:
+            # UPDATE: User requests that we MUST use the "Advanced Masking" upload slot logic.
+            # Since we populated inpaint_mask_image_upload with the VTON mask, we allow this to run.
+            if async_task.inpaint_advanced_masking_checkbox:
                 if isinstance(async_task.inpaint_mask_image_upload, dict):
                     if (isinstance(async_task.inpaint_mask_image_upload['image'], np.ndarray)
                             and isinstance(async_task.inpaint_mask_image_upload['mask'], np.ndarray)
@@ -1384,7 +1312,7 @@ def worker():
                 ip_adapter_path, ip_negative_path, skip_prompt_processing, use_synthetic_refiner)
 
         # Load or unload CNs
-        progressbar(async_task, current_progress, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+        progressbar(async_task, current_progress, 'Loading control models ...')
         pipeline.refresh_controlnets([controlnet_canny_path, controlnet_cpds_path])
         ip_adapter.load_ip_adapter(clip_vision_path, ip_negative_path, ip_adapter_path)
         ip_adapter.load_ip_adapter(clip_vision_path, ip_negative_path, ip_adapter_face_path)
@@ -1395,7 +1323,7 @@ def worker():
         print(f'[Parameters] Steps = {async_task.steps} - {switch}')
 
         # Stage B: Initialization & Preparation
-        progressbar(async_task, current_progress, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+        progressbar(async_task, current_progress, 'Initializing ...')
 
         loras = async_task.loras
         if not skip_prompt_processing:
@@ -1406,7 +1334,7 @@ def worker():
 
         if len(goals) > 0:
             current_progress += 1
-            progressbar(async_task, current_progress, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+            progressbar(async_task, current_progress, 'Image processing ...')
 
         should_enhance = async_task.enhance_checkbox and (async_task.enhance_uov_method != flags.disabled.casefold() or len(async_task.enhance_ctrls) > 0)
 
@@ -1422,7 +1350,7 @@ def worker():
             if direct_return:
                 d = [('Upscale (Fast)', 'upscale_fast', '2x')]
                 if modules.config.default_black_out_nsfw or async_task.black_out_nsfw:
-                    progressbar(async_task, 100, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+                    progressbar(async_task, 100, 'Checking for NSFW content ...')
                     async_task.uov_input_image = default_censor(async_task.uov_input_image)
                 progressbar(async_task, 100, 'Saving image to system ...')
                 uov_input_image_path = log(async_task.uov_input_image, d, output_format=async_task.output_format)
@@ -1502,7 +1430,7 @@ def worker():
         final_scheduler_name = patch_samplers(async_task)
         print(f'Using {final_scheduler_name} scheduler.')
 
-        async_task.yields.append(['preview', (current_progress, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s', None)])
+        async_task.yields.append(['preview', (current_progress, 'Moving model to GPU ...', None)])
 
         processing_start_time = time.perf_counter()
 
@@ -1515,14 +1443,14 @@ def worker():
             async_task.callback_steps += (100 - preparation_steps) / float(all_steps)
             async_task.yields.append(['preview', (
                 int(current_progress + async_task.callback_steps),
-                f'Processing... {time.perf_counter() - async_task.start_time:.1f}s', y)])
+                f'Sampling step {step + 1}/{total_steps}, image {current_task_id + 1}/{total_count} ...', y)])
 
         show_intermediate_results = len(tasks) > 1 or async_task.should_enhance
         persist_image = not async_task.should_enhance or not async_task.save_final_enhanced_image_only
 
         # Stage C: Main Generation Loop (Single Run)
         for current_task_id, task in enumerate(tasks):
-            progressbar(async_task, current_progress, f'Processing... {time.perf_counter() - preparation_start_time:.1f}s')
+            progressbar(async_task, current_progress, f'Preparing task {current_task_id + 1}/{async_task.image_number} ...')
             execution_start_time = time.perf_counter()
 
             try:
@@ -1555,7 +1483,9 @@ def worker():
             print(f'Generating and saving time: {execution_time:.2f} seconds')
 
         # Stage D: Automatic Improvement (Second Pass)
-        if 'inpaint' in goals and len(images_to_enhance) > 0 and inpaint_worker.current_task is not None:
+        # Skip if VTON mode was used (user wants single-pass execution)
+        skip_stage_d_for_vton = async_task.inpaint_mode in modules.flags.vton_options
+        if 'inpaint' in goals and len(images_to_enhance) > 0 and inpaint_worker.current_task is not None and not skip_stage_d_for_vton:
             print('[Auto Enhance] Automatically applying Improve Detail to inpaint result...')
             progressbar(async_task, current_progress, 'Stage D: Improving detail (face, hand, eyes, etc.) ...')
             
@@ -1563,8 +1493,9 @@ def worker():
             inpaint_result_img = images_to_enhance[0]
             
             # Get the mask for Stage D (Prioritize Mask V3 regeneration on result)
-            if hasattr(async_task, 'use_masking_improve_detail') and async_task.use_masking_improve_detail:
-                print(f'[Auto Enhance] Regenerating Mask V3 on Stage 3 result for Stage 4 refinement...')
+            # Get the mask for Stage D
+            # Note: We skip re-masking effectively to avoid double-processing as requested.
+            if False and hasattr(async_task, 'use_masking_improve_detail') and async_task.use_masking_improve_detail:
                 try:
                     import cv2
                     from modules.virtual_tryon import ClothMasker
@@ -1576,18 +1507,12 @@ def worker():
                     stage3_bgr = cv2.cvtColor(inpaint_result_img, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(stage3_img_path, stage3_bgr)
                     
-                    # 2. Re-initialize masker with stored paths (Use Global Cache)
-                    global vton_masker_instance
-                    if vton_masker_instance is None:
-                        with vton_lock:
-                            # Use stored paths for fallback initialization
-                            vton_masker_instance = ClothMasker(
-                                model_path=async_task.masking_saree_model_path,
-                                onnx_model_path=async_task.masking_onnx_model_path,
-                                b2_onnx_path=async_task.masking_seg_model_path
-                            )
-                    
-                    masker = vton_masker_instance
+                    # 2. Re-initialize masker with stored paths
+                    masker = ClothMasker(
+                        model_path=async_task.masking_saree_model_path,
+                        onnx_model_path=async_task.masking_onnx_model_path,
+                        b2_onnx_path=async_task.masking_seg_model_path
+                    )
                     
                     # 3. Process to get fresh mask_v3
                     masking_output_path = os.path.join(temp_dir, 'result_stage4.png')
@@ -1863,37 +1788,5 @@ def worker():
                     del modules.patch.patch_settings[pid]
     pass
 
-
-
-def preload_vton_models():
-    global vton_warper_instance, vton_masker_instance
-    try:
-        import os
-        from modules.virtual_tryon import ShoulderHeightDressWarper, ClothMasker
-        
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        seg_model_path = os.path.join(base_dir, 'models', 'segformer_b2_clothes.onnx')
-        saree_model_path = os.path.join(base_dir, 'models', 'segformer-b3-fashion')
-        onnx_model_path = os.path.join(base_dir, 'models', 'humanparsing', 'parsing_lip.onnx')
-        
-        if os.path.exists(seg_model_path) and os.path.exists(saree_model_path) and os.path.exists(onnx_model_path):
-            print("\n[Fooocus VTON] Pre-loading models for instant generation...")
-            vton_warper_instance = ShoulderHeightDressWarper(
-                seg_model_path=seg_model_path,
-                saree_model_path=saree_model_path
-            )
-            vton_masker_instance = ClothMasker(
-                model_path=saree_model_path,
-                onnx_model_path=onnx_model_path,
-                b2_onnx_path=seg_model_path
-            )
-            print("[Fooocus VTON] Models pre-loaded successfully on GPU.\n")
-        else:
-            print("\n[Fooocus VTON] Models not found, skipping pre-load (will load on first generation).\n")
-    except Exception as e:
-        print(f"\n[Fooocus VTON] Error during pre-loading: {e}\n")
-
-# Pre-load VTON models at module startup
-preload_vton_models()
 
 threading.Thread(target=worker, daemon=True).start()

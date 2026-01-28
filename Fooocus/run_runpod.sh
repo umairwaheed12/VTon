@@ -14,15 +14,12 @@ pip install -r requirements_versions.txt
 echo "Installing Virtual Try-On dependencies (Mediapipe, ONNX-GPU)..."
 pip install mediapipe onnxruntime-gpu
 
-# Optional: Download specific models for dress.py and masking.py
-echo "Downloading small models for Virtual Try-On..."
-python modules/download_small_models.py
+# Optional: Download specific models if they are missing
+# python modules/download_small_models.py
 
 # Launch Fooocus
 # --listen: allows external connections
 # --port 7865: matches RunPod default exposed port
 # --share: creates a gradio.live link as a backup
-echo "Final verification: Ensure onnxruntime (CPU) is removed..."
-pip uninstall -y onnxruntime
 echo "Launching Fooocus..."
 python launch.py --listen --port 7865 --share

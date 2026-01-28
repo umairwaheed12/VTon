@@ -43,8 +43,9 @@ def install_python_dependencies():
         # CV / Processing
         "mediapipe==0.10.9",
         "protobuf<3.20.4", # Often needed for MediaPipe compatibility
-        "transformers",
-        "pillow"
+        "transformers==4.39.0", # STRICTLY PINNED for Moondream2 compatibility
+        "pillow",
+        "segment-anything"
     ]
     
     subprocess.check_call([sys.executable, "-m", "pip", "install"] + deps)
@@ -71,24 +72,32 @@ def download_models():
     # ------------------------------------------------------------------
     print("\n[1/4] Downloading Moondream2...")
     moondream_path = models_dir / "moondream2"
-    snapshot_download(
-        repo_id="vikhyatk/moondream2",
-        local_dir=moondream_path,
-        local_dir_use_symlinks=False
-    )
-    print(f"✓ Downloaded to: {moondream_path}")
+    if not moondream_path.exists():
+        snapshot_download(
+            repo_id="vikhyatk/moondream2",
+            local_dir=moondream_path,
+            local_dir_use_symlinks=False,
+            revision="2024-04-02" # Pinned revision
+        )
+        print(f"✓ Downloaded to: {moondream_path}")
+    else:
+         print(f"✓ Already exists: {moondream_path}")
+
 
     # ------------------------------------------------------------------
     # 2. SegFormer B3 Fashion (from sayeed99/segformer-b3-fashion)
     # ------------------------------------------------------------------
     print("\n[2/4] Downloading SegFormer B3 Fashion...")
     segformer_b3_path = models_dir / "segformer-b3-fashion"
-    snapshot_download(
-        repo_id="sayeed99/segformer-b3-fashion",
-        local_dir=segformer_b3_path,
-        local_dir_use_symlinks=False  # Clean copy for portability
-    )
-    print(f"✓ Downloaded to: {segformer_b3_path}")
+    if not segformer_b3_path.exists():
+        snapshot_download(
+            repo_id="sayeed99/segformer-b3-fashion",
+            local_dir=segformer_b3_path,
+            local_dir_use_symlinks=False  # Clean copy for portability
+        )
+        print(f"✓ Downloaded to: {segformer_b3_path}")
+    else:
+        print(f"✓ Already exists: {segformer_b3_path}")
 
     # ------------------------------------------------------------------
     # 3. LIP Parsing Model (from pngwn/IDM-VTON Space)
@@ -132,6 +141,8 @@ def download_models():
                 subprocess.check_call(["wget", "-O", str(target_path), url])
             except Exception as e2:
                 print(f"❌ Failed to download LIP model: {e2}")
+    else:
+        print(f"✓ Already exists: {target_path}")
 
     print(f"✓ LIP Model verified at: {target_path}")
 
@@ -141,26 +152,58 @@ def download_models():
     print("\n[4/4] Downloading SegFormer B2 Clothes (ONNX)...")
     b2_clothes_dir = models_dir / "SegFormerB2Clothes"
     b2_clothes_dir.mkdir(exist_ok=True)
-    
-    # The file in the repo is 'onnx/model.onnx'
-    hf_hub_download(
-        repo_id="mattmdjaga/segformer_b2_clothes",
-        filename="onnx/model.onnx",
-        local_dir=models_dir,
-        local_dir_use_symlinks=False
-    )
-    
-    source_b2 = models_dir / "onnx" / "model.onnx"
     target_b2 = b2_clothes_dir / "segformer_b2_clothes.onnx"
-    
-    if source_b2.exists():
-        shutil.move(str(source_b2), str(target_b2))
-        try:
-            shutil.rmtree(models_dir / "onnx")
-        except:
-            pass
+
+    if not target_b2.exists():
+        # The file in the repo is 'onnx/model.onnx'
+        hf_hub_download(
+            repo_id="mattmdjaga/segformer_b2_clothes",
+            filename="onnx/model.onnx",
+            local_dir=models_dir,
+            local_dir_use_symlinks=False
+        )
+        
+        source_b2 = models_dir / "onnx" / "model.onnx"
+        
+        if source_b2.exists():
+            shutil.move(str(source_b2), str(target_b2))
+            try:
+                shutil.rmtree(models_dir / "onnx")
+            except:
+                pass
+    else:
+        print(f"✓ Already exists: {target_b2}")
             
     print(f"✓ Downloaded to: {target_b2}")
+    
+    # ------------------------------------------------------------------
+    # 5. SAM Model (from facebook/sam-vit-base)
+    # ------------------------------------------------------------------
+    print("\n[5/5] Downloading SAM (Segment Anything) Model...")
+    sam_dir = models_dir / "sam"
+    sam_dir.mkdir(exist_ok=True)
+    target_sam = sam_dir / "sam_vit_b_01ec64.pth"
+    
+    if not target_sam.exists():
+        try:
+            # Download from facebook/sam-vit-base or similar weight repo
+            hf_hub_download(
+                repo_id="ybelkada/segment-anything",
+                filename="checkpoints/sam_vit_b_01ec64.pth",
+                local_dir=models_dir,
+                local_dir_use_symlinks=False
+            )
+            
+            source_sam = models_dir / "checkpoints" / "sam_vit_b_01ec64.pth"
+            if source_sam.exists():
+                shutil.move(str(source_sam), str(target_sam))
+                if (models_dir / "checkpoints").exists():
+                    shutil.rmtree(models_dir / "checkpoints")
+                print(f"   Moved to: {target_sam}")
+        except Exception as e:
+            print(f"⚠ SAM download failed: {e}")
+    else:
+        print(f"✓ Already exists: {target_sam}")
 
     print("\n" + "="*50)
     print("ALL DOWNLOADS COMPLETE")
@@ -171,6 +214,7 @@ def download_models():
     print(f"2. MASKING_SEG_MODEL_PATH: {segformer_b3_path}")
     print(f"3. MASKING_Onnx_MODEL_PATH: {target_path}")
     print(f"4. MOONDREAM_MODEL_PATH: {moondream_path}")
+    print(f"5. SAM_MODEL_PATH: {target_sam}")
     print("="*50)
 
 if __name__ == "__main__":

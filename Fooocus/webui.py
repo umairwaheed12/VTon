@@ -23,6 +23,7 @@ from modules.private_logger import get_current_html_path
 from modules.ui_gradio_extensions import reload_javascript
 from modules.auth import auth_enabled, check_auth
 from modules.util import is_json
+import modules.moondream_helper as moondream_helper
 
 def get_task(*args):
     args = list(args)
@@ -46,7 +47,8 @@ def generate_clicked(task: worker.AsyncTask):
     yield gr.update(visible=True, value=modules.html.make_progress_html(1, 'Waiting for task to start ...')), \
         gr.update(visible=True, value=None), \
         gr.update(visible=False, value=None), \
-        gr.update(visible=False)
+        gr.update(visible=False), \
+        gr.update()
 
     worker.async_tasks.append(task)
 
@@ -66,12 +68,20 @@ def generate_clicked(task: worker.AsyncTask):
                 yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
                     gr.update(visible=True, value=image) if image is not None else gr.update(), \
                     gr.update(), \
-                    gr.update(visible=False)
+                    gr.update(visible=False), \
+                    gr.update()
             if flag == 'results':
                 yield gr.update(visible=True), \
                     gr.update(visible=True), \
                     gr.update(visible=True, value=product), \
-                    gr.update(visible=False)
+                    gr.update(visible=False), \
+                    gr.update()
+            if flag == 'vton_mask':
+                yield gr.update(visible=True), \
+                    gr.update(visible=True), \
+                    gr.update(), \
+                    gr.update(visible=False), \
+                    gr.update(value=product, visible=True)
             if flag == 'finish':
                 if not args_manager.args.disable_enhance_output_sorting:
                     product = sort_enhance_images(product, task)
@@ -79,7 +89,8 @@ def generate_clicked(task: worker.AsyncTask):
                 yield gr.update(visible=False), \
                     gr.update(visible=False), \
                     gr.update(visible=False), \
-                    gr.update(visible=True, value=product)
+                    gr.update(visible=True, value=product), \
+                    gr.update()
                 finished = True
 
                 # delete Fooocus temp images, only keep gradio temp images
@@ -113,6 +124,16 @@ def sort_enhance_images(images, task):
 
 
 def inpaint_mode_change(mode, inpaint_engine_version):
+    if inpaint_engine_version == 'empty' or inpaint_engine_version == 'None':
+        inpaint_engine_version = modules.config.default_inpaint_engine_version
+
+    if mode in modules.flags.vton_options:
+        return [
+            gr.update(visible=False, value=''), gr.update(visible=True),
+            gr.Dataset.update(visible=False, samples=modules.config.example_inpaint_prompts),
+            False, inpaint_engine_version, 0.73, 0.618
+        ]
+
     assert mode in modules.flags.inpaint_options
 
     if inpaint_engine_version == 'empty':
@@ -195,9 +216,9 @@ with shared.gradio_root:
                     stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask, queue=False, show_progress=False, _js='cancelGenerateForever')
                     skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=False, show_progress=False)
             with gr.Row(elem_classes='advanced_check_row'):
-                input_image_checkbox = gr.Checkbox(label='Input Image', value=modules.config.default_image_prompt_checkbox, container=False, elem_classes='min_check', visible=False)
+                input_image_checkbox = gr.Checkbox(label='Input Image', value=modules.config.default_image_prompt_checkbox, container=False, elem_classes='min_check')
                 enhance_checkbox = gr.Checkbox(label='Enhance', value=modules.config.default_enhance_checkbox, container=False, elem_classes='min_check', visible=False)
-                advanced_checkbox = gr.Checkbox(label='Advanced', value=modules.config.default_advanced_checkbox, container=False, elem_classes='min_check', visible=False)
+                advanced_checkbox = gr.Checkbox(label='Advanced', value=modules.config.default_advanced_checkbox, container=False, elem_classes='min_check')
             with gr.Row(visible=modules.config.default_image_prompt_checkbox) as image_input_panel:
                 with gr.Tabs(selected='inpaint_tab', elem_id='input_image_tabs'):
                     with gr.Tab(label='Upscale or Variation', id='uov_tab', visible=False) as uov_tab:
@@ -257,8 +278,26 @@ with shared.gradio_root:
                                 with gr.Row():
                                     inpaint_input_image = grh.Image(label='Person Image', source='upload', type='numpy', tool='sketch', height=500, brush_color="#FFFFFF", elem_id='inpaint_canvas', show_label=True)
                                     cloth_input_image = grh.Image(label='Cloth Image (Optional - for Virtual Try-On)', source='upload', type='numpy', height=500, show_label=True)
-                                # Virtual Try-On always enabled (checkbox removed)
-                                inpaint_mode = gr.Dropdown(choices=modules.flags.inpaint_options, value=modules.config.default_inpaint_method, label='Method', visible=False)
+                                    
+                                    def update_prompt_with_moondream(cloth_img, current_prompt):
+                                        if cloth_img is None:
+                                            return current_prompt
+                                        print("🌙 UI: Cloth uploaded! Triggering Moondream analysis...")
+                                        description = moondream_helper.analyze_cloth(cloth_img)
+                                        if description and not description.startswith("Error"):
+                                            return f"{description}"
+                                        return current_prompt
+
+                                    cloth_input_image.upload(
+                                        fn=update_prompt_with_moondream,
+                                        inputs=[cloth_input_image, prompt],
+                                        outputs=prompt,
+                                        show_progress=True
+                                    )
+
+                                    # Virtual Try-On always enabled (checkbox removed)
+                                    inpaint_mode = gr.Radio(choices=modules.flags.vton_options, value=modules.flags.vton_auto, label='Method')
+                                    vton_generated_mask = grh.Image(label='VTON Generated Mask', type='filepath', height=500, visible=True, show_label=True, interactive=False)
                                 inpaint_additional_prompt = gr.Textbox(placeholder="Describe what you want to inpaint.", elem_id='inpaint_additional_prompt', label='Inpaint Additional Prompt', visible=False)
                                 with gr.Column(visible=False):
                                     outpaint_selections = gr.CheckboxGroup(choices=['Left', 'Right', 'Top', 'Bottom'], value=[], label='Outpaint Direction')
@@ -819,7 +858,7 @@ with shared.gradio_root:
                                                      choices=flags.inpaint_engine_versions,
                                                      info='Version of Fooocus inpaint model. If set, use performance Quality or Speed (no performance LoRAs) for best results.')
                         inpaint_strength = gr.Slider(label='Inpaint Denoising Strength',
-                                                     minimum=0.0, maximum=1.0, step=0.001, value=1.0,
+                                                     minimum=0.0, maximum=1.0, step=0.001, value=0.73,
                                                      info='Same as the denoising strength in A1111 inpaint. '
                                                           'Only used in inpaint, not used in outpaint. '
                                                           '(Outpaint always use 1.0)')
@@ -844,7 +883,7 @@ with shared.gradio_root:
                         inpaint_mask_color = gr.ColorPicker(label='Inpaint brush color', value='#FFFFFF', elem_id='inpaint_brush_color')
 
                         inpaint_ctrls = [debugging_inpaint_preprocessor, inpaint_disable_initial_latent, inpaint_engine,
-                                         inpaint_strength, inpaint_respective_field,
+                                         inpaint_strength, inpaint_respective_field, inpaint_mode,
                                          invert_mask_checkbox, inpaint_erode_or_dilate]
 
                         inpaint_mask_color.change(lambda x: gr.update(brush_color=x), inputs=inpaint_mask_color,
@@ -1039,7 +1078,7 @@ with shared.gradio_root:
                               outputs=[stop_button, skip_button, generate_button, gallery, state_is_generating]) \
             .then(fn=refresh_seed, inputs=[seed_random, image_seed], outputs=image_seed) \
             .then(fn=get_task, inputs=ctrls, outputs=currentTask) \
-            .then(fn=generate_clicked, inputs=currentTask, outputs=[progress_html, progress_window, progress_gallery, gallery]) \
+            .then(fn=generate_clicked, inputs=currentTask, outputs=[progress_html, progress_window, progress_gallery, gallery, vton_generated_mask]) \
             .then(lambda: (gr.update(visible=True, interactive=True), gr.update(visible=False, interactive=False), gr.update(visible=False, interactive=False), False),
                   outputs=[generate_button, stop_button, skip_button, state_is_generating]) \
             .then(fn=update_history_link, outputs=history_link) \
@@ -1112,15 +1151,7 @@ def dump_default_english_config():
     dump_english_config(grh.all_components)
 
 
-# Dump config
 # dump_default_english_config()
-
-# Pre-load VTON models (User Optimization)
-print("Startup: Initiating VTON model pre-loading...")
-try:
-    worker.preload_vton_models()
-except Exception as e:
-    print(f"Startup Warning: VTON pre-loading failed (will load lazily): {e}")
 
 shared.gradio_root.launch(
     inbrowser=args_manager.args.in_browser,

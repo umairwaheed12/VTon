@@ -1,0 +1,155 @@
+import subprocess
+import sys
+import os
+import importlib.metadata
+
+def check_and_install_dependencies():
+    """Ensure strictly compatible dependencies are installed at runtime."""
+    # Moondream2 works best with transformers==4.39.0
+    required_packages = [
+        ("transformers", "4.39.0"),
+        ("accelerate", None),
+        ("einops", None),
+        ("timm", None)
+    ]
+    
+    needs_restart = False
+    install_list = []
+
+    for package, version in required_packages:
+        try:
+            installed_version = importlib.metadata.version(package)
+            if version and installed_version != version:
+                print(f"🌙 Moondream: {package} version mismatch ({installed_version} != {version})")
+                install_list.append(f"{package}=={version}")
+                needs_restart = True
+        except importlib.metadata.PackageNotFoundError:
+            print(f"🌙 Moondream: {package} missing.")
+            install_list.append(f"{package}=={version}" if version else package)
+            needs_restart = True
+
+    if needs_restart:
+        print(f"🌙 Moondream: Auto-installing dependencies: {', '.join(install_list)}...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir"] + install_list)
+            print("🔄 Moondream: Restarting application to apply changes...")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception as e:
+            print(f"❌ Moondream: Failed to install dependencies: {e}")
+
+# Run check immediately on import
+check_and_install_dependencies()
+
+import torch
+import time
+from PIL import Image
+from transformers import AutoModelForCausalLM, AutoProcessor
+from pathlib import Path
+
+# Module-level globals for lazy loading
+_model = None
+_processor = None
+
+def get_moondream_model_path():
+    """Locate the Moondream2 model directory."""
+    # Look for the 'models' folder at the project root
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    local_path = base_dir / "models" / "moondream2"
+    
+    if local_path.exists():
+        return str(local_path)
+    return "vikhyatk/moondream2"
+
+def load_moondream():
+    """Load the Moondream2 model and processor into memory."""
+    global _model, _processor
+    
+    if _model is not None:
+        return _model, _processor
+    
+    model_id = get_moondream_model_path()
+    print(f"🌙 Moondream: Loading model from {model_id}...")
+    
+    try:
+        # Use a stable revision and trust remote code for custom layers
+        revision = "2024-04-02"
+        
+        _processor = AutoProcessor.from_pretrained(
+            model_id,
+            trust_remote_code=True,
+            revision=revision
+        )
+        
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        
+        _model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            trust_remote_code=True,
+            torch_dtype=dtype,
+            revision=revision
+        ).to(device)
+        
+        _model.eval()
+        print(f"✅ Moondream: Loaded successfully on {device}")
+        return _model, _processor
+        
+    except Exception as e:
+        print(f"❌ Moondream: Failed to load: {e}")
+        return None, None
+
+def analyze_cloth(image):
+    """
+    Analyze a cloth image and return a detailed prompt description.
+    Args:
+        image: A PIL Image or numpy array.
+    """
+    if image is None:
+        return ""
+        
+    # Lazy load the model
+    model, processor = load_moondream()
+    if model is None:
+        return "Error: Moondream model could not be loaded."
+        
+    # Convert numpy to PIL if necessary
+    if not isinstance(image, Image.Image):
+        import numpy as np
+        if isinstance(image, np.ndarray):
+            image = Image.fromarray(image)
+        else:
+            return "Error: Unsupported image type."
+            
+    # Ensure RGB
+    image = image.convert("RGB")
+    
+    query = (
+        "Analyze this cloth image in extreme detail for a stable diffusion prompt. "
+        "Describe the garment type, color, fabric (e.g., silk, cotton, denim), "
+        "pattern (e.g., floral, solid, striped), sleeve length, neckline, "
+        "fit (e.g., oversized, slim), and any unique features like buttons or embroidery. "
+        "Provide the description in a single clear paragraph."
+    )
+    
+    print(f"🌙 Moondream: Analyzing cloth image...")
+    start_time = time.time()
+    
+    try:
+        device = next(model.parameters()).device
+        
+        with torch.no_grad():
+            image_embeds = model.encode_image(image)
+            response = model.answer_question(
+                image_embeds=image_embeds,
+                question=query,
+                tokenizer=processor
+            )
+            
+        elapsed = time.time() - start_time
+        description = response.strip()
+        print(f"✅ Moondream: Analysis complete in {elapsed:.2f}s")
+        return description
+        
+    except Exception as e:
+        print(f"❌ Moondream: Error during analysis: {e}")
+        return f"Error during cloth analysis: {str(e)}"

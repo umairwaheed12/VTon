@@ -1,4 +1,4 @@
-﻿import cv2
+import cv2
 import numpy as np
 import torch
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
@@ -51,19 +51,13 @@ class ClothMasker:
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            print(f"DEBUG: Masking ORT Available Providers: {ort.get_available_providers()}")
             self.onnx_session = ort.InferenceSession(str(onnx_model_path), sess_options=sess_opts, providers=providers)
             print(f"LIP ONNX Providers: {self.onnx_session.get_providers()}")
             self.onnx_input_name = self.onnx_session.get_inputs()[0].name
             print("[OK] LIP parsing ONNX model loaded successfully")
         except Exception as e:
-            print(f"[ERROR] Failed to load ONNX model with CUDA: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback to CPU
-            print("Falling back to CPU for LIP model...")
-            self.onnx_session = ort.InferenceSession(str(onnx_model_path), sess_options=sess_opts, providers=['CPUExecutionProvider'])
-            self.onnx_input_name = self.onnx_session.get_inputs()[0].name
+            print(f"[ERROR] Failed to load ONNX model: {e}")
+            raise
         
         # Initialize MediaPipe Pose for backup detection
         print("Loading MediaPipe Pose for backup detection...")
@@ -80,17 +74,8 @@ class ClothMasker:
                 self.b2_input_name = self.b2_session.get_inputs()[0].name
                 print("[OK] B2 clothes parsing ONNX model loaded successfully")
             except Exception as e:
-                print(f"[ERROR] Failed to load B2 ONNX model with CUDA: {e}")
-                import traceback
-                traceback.print_exc()
-                # Fallback to CPU if needed, or just disable V3 (less critical)
-                print("Falling back to CPU for B2 model...")
-                try:
-                    self.b2_session = ort.InferenceSession(str(b2_onnx_path), sess_options=sess_opts, providers=['CPUExecutionProvider'])
-                    self.b2_input_name = self.b2_session.get_inputs()[0].name
-                except Exception as ex:
-                     print(f"FAILED to load B2 model even on CPU: {ex}")
-                     self.b2_session = None
+                print(f"[ERROR] Failed to load B2 ONNX model: {e}")
+                # Don't raise, just disable v3 if b2 is missing
     
     
     def get_cloth_mask(self, image):
@@ -649,9 +634,8 @@ class ClothMasker:
         
         return result
     
-    def process(self, input_image_path=None, output_path=None, border_thickness=20, 
-                overlay_color=(100, 140, 255), alpha=0.5, warp_mask_path=None, generate_v3=True,
-                image=None, warp_mask_image=None):
+    def process(self, input_image_path, output_path, border_thickness=20, 
+                overlay_color=(100, 140, 255), alpha=0.5, warp_mask_path=None, generate_v3=True):
         """
         Main processing pipeline: Load image -> Segment cloth -> Create thick border -> Apply overlay
         
@@ -662,24 +646,16 @@ class ClothMasker:
             overlay_color: BGR color for overlay (default: coral/pink)
             alpha: Overlay transparency (default: 0.5)
             warp_mask_path: Optional path to _MASK.png from robust_cloth_warp.py
-            image: Optional numpy array (BGR). If provided, input_image_path is ignored.
-            warp_mask_image: Optional numpy array (Gray). If provided, warp_mask_path is ignored.
         """
         print(f"\n{'='*60}")
-        if input_image_path:
-            print(f"Processing: {input_image_path}")
-        else:
-            print("Processing image from memory...")
+        print(f"Processing: {input_image_path}")
         print(f"{'='*60}")
         
         # Load image
+        image = cv2.imread(str(input_image_path))
         if image is None:
-            image = cv2.imread(str(input_image_path))
-            if image is None:
-                print(f"[ERROR] Failed to load image: {input_image_path}")
-                return None
-        else:
-            image = image.copy()
+            print(f"[ERROR] Failed to load image: {input_image_path}")
+            return
         
         h, w = image.shape[:2]
         print(f"[OK] Image loaded: {w}x{h}")
@@ -732,38 +708,28 @@ class ClothMasker:
         # Load and include warp mask from robust_cloth_warp.py if provided
         warp_mask = None
         connection_mask = None
-        
-        # Logic to use passed warp_mask_image or load from path
-        if warp_mask_image is not None:
-             print(">> Using warp mask from memory")
-             warp_mask = warp_mask_image.copy()
-             # Ensure single channel
-             if len(warp_mask.shape) == 3:
-                 warp_mask = cv2.cvtColor(warp_mask, cv2.COLOR_BGR2GRAY)
-        elif warp_mask_path:
+        if warp_mask_path:
             print(f">> Loading warp mask from: {warp_mask_path}")
             warp_mask = cv2.imread(str(warp_mask_path), cv2.IMREAD_GRAYSCALE)
-            
-        if warp_mask is not None:
-            # Resize to match image dimensions if needed
-            if warp_mask.shape[:2] != (h, w):
-                warp_mask = cv2.resize(warp_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-            print(f"[OK] Warp mask loaded: {cv2.countNonZero(warp_mask)} pixels")
-            
-            # CRITICAL CHANGE: If warp_mask is provided (from dresss.py), TRUST IT.
-            # Do NOT fill gaps between legs if they exist in warp_mask.
-            
-            # Combine: warp mask + legs mask
-            skin_mask = cv2.bitwise_or(skin_mask, warp_mask)
-            
-            # OPTIONAL: Connection logic disabled to preserve gaps
-            # connection_mask = self._connect_masks_from_below(warp_mask, skin_mask, h, w)
-            # skin_mask = cv2.bitwise_or(skin_mask, connection_mask)
-            
-            print(f"[OK] Combined mask: {cv2.countNonZero(skin_mask)} pixels")
-        else:
-            if warp_mask_path:
-                 print(f"[WARNING] Failed to load warp mask from: {warp_mask_path}")
+            if warp_mask is not None:
+                # Resize to match image dimensions if needed
+                if warp_mask.shape[:2] != (h, w):
+                    warp_mask = cv2.resize(warp_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+                print(f"[OK] Warp mask loaded: {cv2.countNonZero(warp_mask)} pixels")
+                
+                # CRITICAL CHANGE: If warp_mask is provided (from dresss.py), TRUST IT.
+                # Do NOT fill gaps between legs if they exist in warp_mask.
+                
+                # Combine: warp mask + legs mask
+                skin_mask = cv2.bitwise_or(skin_mask, warp_mask)
+                
+                # OPTIONAL: Connection logic disabled to preserve gaps
+                # connection_mask = self._connect_masks_from_below(warp_mask, skin_mask, h, w)
+                # skin_mask = cv2.bitwise_or(skin_mask, connection_mask)
+                
+                print(f"[OK] Combined mask: {cv2.countNonZero(skin_mask)} pixels")
+            else:
+                print(f"[WARNING] Failed to load warp mask from: {warp_mask_path}")
         
         # Create thick border
         print(f">> Creating thick border (thickness: {border_thickness}px)...")
@@ -802,10 +768,14 @@ class ClothMasker:
         print(f">> Applying overlay (color: {overlay_color}, alpha: {alpha})...")
         result = self.apply_overlay(image, combined_mask, overlay_color, alpha)
         
-        # Save result (Only if output_path is provided)
-        if output_path:
-            cv2.imwrite(str(output_path), result)
-            print(f"[SAVED] Masked result: {output_path}")
+        # Save result
+        cv2.imwrite(str(output_path), result)
+        print(f"[SAVED] Masked result: {output_path}")
+        
+        # Also save just the mask for reference
+        from pathlib import Path
+        output_p = Path(output_path)
+        mask_only_path = str(output_p.parent / (output_p.stem + '_mask' + output_p.suffix))
         
         # Prepare the mask to save: cloth border + warp mask + bottom filling + ARMS/HANDS
         mask_to_save = border_mask.copy()
@@ -815,53 +785,42 @@ class ClothMasker:
         print(f">> Including arms/hands in saved mask")
         mask_to_save = cv2.bitwise_or(mask_to_save, skin_mask)
         
-        # Also remove face/hair from mask_to_save just to be safe
-        mask_to_save[face_hair_protection > 0] = 0
-        
-        # Save mask if path provided
-        if output_path:
-            from pathlib import Path
-            output_p = Path(output_path)
-            mask_only_path = str(output_p.parent / (output_p.stem + '_mask' + output_p.suffix))
-            cv2.imwrite(mask_only_path, mask_to_save)
-            print(f"[SAVED] Mask only: {mask_only_path}")
-
-            # Also save visualization of segmentation for debugging
-            # seg_vis_path = str(output_p.parent / (output_p.stem + '_seg_vis' + output_p.suffix))
-            # cv2.imwrite(seg_vis_path, cloth_mask)
-        
-        # Generate V2 Mask (Inpaint Mask)
-        # This is the mask used for Fooocus inpainting. 
-        # White = Inpaint Area (Cloth + border + arms/legs)
-        # Black = Keep (Face, background)
-        mask_v2 = mask_to_save.copy() # Start with the overlay regions
-        
-        # Also include the actual cloth mask itself (to ensure the interior of the cloth is repainted)
-        mask_v2 = cv2.bitwise_or(mask_v2, cloth_mask)
-        
-        # Ensure warp mask is also included
+        # Include warp mask if it was loaded
         if warp_mask is not None:
-             mask_v2 = cv2.bitwise_or(mask_v2, warp_mask)
+            print(f">> Including warp mask from robust_cloth_warp.py in saved mask")
+            mask_to_save = cv2.bitwise_or(mask_to_save, warp_mask)
         
-        # CRITICAL: Exclude face/hair/background from V2 mask to protect them
-        mask_v2[face_hair_protection > 0] = 0
+        # Include bottom filling (connection_mask) if it exists
+        if connection_mask is not None:
+            # Only include if specifically enabled (currently disabled)
+            pass
+            # print(f">> Including bottom gap filling in saved mask")
+            # mask_to_save = cv2.bitwise_or(mask_to_save, connection_mask)
         
-        if output_path:
-            mask_v2_path = str(output_p.parent / (output_p.stem + '_mask_v2' + output_p.suffix))
-            cv2.imwrite(mask_v2_path, mask_v2)
-            print(f"[SAVED] Inpaint Mask (V2): {mask_v2_path}")
+        # Apply minimal clean up
+        kernel_close_small = np.ones((3, 3), np.uint8)
+        mask_to_save = cv2.morphologyEx(mask_to_save, cv2.MORPH_CLOSE, kernel_close_small)
         
-        # Generate V3 Mask (Experimental "Soft" Mask) - Optional
-        mask_v3 = None
-        if generate_v3:
-            try:
-                # ... (V3 Logic would go here if enabled) ...
-                mask_v3 = mask_v2.copy() # Placeholder
-            except Exception as e:
-                print(f"[WARNING] V3 mask generation failed: {e}")
-                
-        return result, mask_to_save, mask_v2
+        # REMOVED: Large closing and floodFill which destroys gaps
+        # kernel_close_medium = np.ones((21, 21), np.uint8)
+        # mask_to_save = cv2.morphologyEx(mask_to_save, cv2.MORPH_CLOSE, kernel_close_medium)
         
+        # mask_inv = cv2.bitwise_not(mask_to_save)
+        # cv2.floodFill(...)
+        # holes = cv2.bitwise_not(mask_inv)
+        # mask_to_save = cv2.bitwise_or(mask_to_save, holes)
+        
+        kernel_final = np.ones((5, 5), np.uint8)
+        mask_to_save = cv2.morphologyEx(mask_to_save, cv2.MORPH_CLOSE, kernel_final)
+        
+        # EXCLUDE MediaPipe legs from the final mask
+        if hasattr(self, 'mp_legs_visualization') and self.mp_legs_visualization is not None:
+            print(f">> Excluding MediaPipe legs from final saved mask")
+            # Remove legs (set pixels to 0 where legs are detected)
+            mask_to_save[self.mp_legs_visualization > 0] = 0
+            print(f"   - Legs excluded from mask")
+        
+        # RE-ADD the warp mask from robust_cloth_warp.py at the end
         if warp_mask is not None:
             print(f">> Re-adding warp mask from robust_cloth_warp.py at the end")
             mask_to_save = cv2.bitwise_or(mask_to_save, warp_mask)

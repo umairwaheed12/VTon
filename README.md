@@ -35,6 +35,7 @@ To access your app anytime without relying on Gradio share links:
 ## Project Structure
 - `Fooocus/`: The core application code.
 - `runpod_setup.sh`: Automated environment setup and launcher.
+- `models_downloader.py`: Centralized script to download all required AI models and dependencies.
 - `config.txt`: Configuration for Fooocus.
 - `run.bat`: Windows launcher.
 

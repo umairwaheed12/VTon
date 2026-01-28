@@ -27,7 +27,7 @@ fi
 
 # 2. Run the environment setup and model download
 echo "Step 1: Setting up environment and downloading models..."
-python3 Fooocus/modules/download_small_models.py
+python3 models_downloader.py
 
 # 3. Fix ONNX Runtime GPU (CUDNN) library discovery
 echo "Step 2: Configuring NVIDIA library paths for GPU acceleration..."

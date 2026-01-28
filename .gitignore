@@ -3,6 +3,7 @@ python_embeded/
 __pycache__/
 
 # Exclude models (download them on RunPod instead)
+models/
 Fooocus/models/
 !Fooocus/models/prompt_expansion/fooocus_expansion/*.json
 !Fooocus/models/prompt_expansion/fooocus_expansion/*.txt
