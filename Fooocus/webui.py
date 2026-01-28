@@ -53,52 +53,59 @@ def generate_clicked(task: worker.AsyncTask):
     worker.async_tasks.append(task)
 
     while not finished:
-        time.sleep(0.01)
-        if len(task.yields) > 0:
+        if len(task.yields) == 0:
+            time.sleep(0.05)
+            continue
+
+        # Drain the entire queue to catch up with backend as fast as possible
+        updates = {}
+        while len(task.yields) > 0:
             flag, product = task.yields.pop(0)
-            if flag == 'preview':
-                # Skip duplicate previews to keep UI synchronized with terminal (especially on fast GPUs)
-                while len(task.yields) > 0 and task.yields[0][0] == 'preview':
-                    flag, product = task.yields.pop(0)
-
-                percentage, title, image = product
-                yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
-                    gr.update(visible=True, value=image) if image is not None else gr.update(), \
-                    gr.update(), \
-                    gr.update(visible=False), \
-                    gr.update()
-            if flag == 'results':
-                # Skip intermediate results to catch up with worker
-                while len(task.yields) > 0 and task.yields[0][0] == 'results':
-                    flag, product = task.yields.pop(0)
-
-                yield gr.update(visible=True), \
-                    gr.update(visible=True), \
-                    gr.update(visible=True, value=product), \
-                    gr.update(visible=False), \
-                    gr.update()
-            if flag == 'vton_mask':
-                yield gr.update(visible=True), \
-                    gr.update(visible=True), \
-                    gr.update(), \
-                    gr.update(visible=False), \
-                    gr.update(value=product, visible=False)
+            updates[flag] = product
             if flag == 'finish':
-                if not args_manager.args.disable_enhance_output_sorting:
-                    product = sort_enhance_images(product, task)
-
-                yield gr.update(visible=False), \
-                    gr.update(visible=False), \
-                    gr.update(visible=False), \
-                    gr.update(visible=True, value=product), \
-                    gr.update()
                 finished = True
+                break
 
-                # delete Fooocus temp images, only keep gradio temp images
-                if args_manager.args.disable_image_log:
-                    for filepath in product:
-                        if isinstance(filepath, str) and os.path.exists(filepath):
-                            os.remove(filepath)
+        if 'preview' in updates:
+            percentage, title, image = updates['preview']
+            yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
+                gr.update(visible=True, value=image) if image is not None else gr.update(), \
+                gr.update(), \
+                gr.update(visible=False), \
+                gr.update()
+
+        if 'results' in updates:
+            product = updates['results']
+            yield gr.update(visible=True), \
+                gr.update(visible=True), \
+                gr.update(visible=True, value=product), \
+                gr.update(visible=False), \
+                gr.update()
+
+        if 'vton_mask' in updates:
+            product = updates['vton_mask']
+            yield gr.update(visible=True), \
+                gr.update(visible=True), \
+                gr.update(), \
+                gr.update(visible=False), \
+                gr.update(value=product, visible=False)
+
+        if 'finish' in updates:
+            product = updates['finish']
+            if not args_manager.args.disable_enhance_output_sorting:
+                product = sort_enhance_images(product, task)
+
+            yield gr.update(visible=False), \
+                gr.update(visible=False), \
+                gr.update(visible=False), \
+                gr.update(visible=True, value=product), \
+                gr.update()
+
+        # delete Fooocus temp images, only keep gradio temp images
+        if args_manager.args.disable_image_log:
+            for filepath in product:
+                if isinstance(filepath, str) and os.path.exists(filepath):
+                    os.remove(filepath)
 
     execution_time = time.perf_counter() - execution_start_time
     print(f'Total time: {execution_time:.2f} seconds')
