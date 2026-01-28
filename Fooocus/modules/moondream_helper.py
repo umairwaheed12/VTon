@@ -32,8 +32,13 @@ def check_and_install_dependencies():
         print(f"🌙 Moondream: Auto-installing dependencies: {', '.join(install_list)}...")
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir"] + install_list)
-            print("🔄 Moondream: Restarting application to apply changes...")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+            # Resolve absolute path for restart because Fooocus changes CWD during startup
+            executable_path = os.path.abspath(sys.argv[0])
+            print(f"🔄 Moondream: Restarting application to apply changes (Path: {executable_path})...")
+            
+            # Use absolute path to bypass CWD changes
+            os.execv(sys.executable, [sys.executable, executable_path] + sys.argv[1:])
         except Exception as e:
             print(f"❌ Moondream: Failed to install dependencies: {e}")
 
