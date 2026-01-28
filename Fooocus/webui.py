@@ -278,22 +278,7 @@ with shared.gradio_root:
                                 with gr.Row():
                                     inpaint_input_image = grh.Image(label='Person Image', source='upload', type='numpy', tool='sketch', height=500, brush_color="#FFFFFF", elem_id='inpaint_canvas', show_label=True)
                                     cloth_input_image = grh.Image(label='Cloth Image (Optional - for Virtual Try-On)', source='upload', type='numpy', height=500, show_label=True)
-                                    
-                                    def update_prompt_with_moondream(cloth_img, current_prompt):
-                                        if cloth_img is None:
-                                            return current_prompt
-                                        print("🌙 UI: Cloth uploaded! Triggering Moondream analysis...")
-                                        description = moondream_helper.analyze_cloth(cloth_img)
-                                        if description and not description.startswith("Error"):
-                                            return f"{description}"
-                                        return current_prompt
 
-                                    cloth_input_image.upload(
-                                        fn=update_prompt_with_moondream,
-                                        inputs=[cloth_input_image, prompt],
-                                        outputs=prompt,
-                                        show_progress=True
-                                    )
 
                                     # Virtual Try-On always enabled (checkbox removed)
                                     inpaint_mode = gr.Radio(choices=modules.flags.vton_options, value=modules.flags.vton_auto, label='Method')
@@ -1074,8 +1059,18 @@ with shared.gradio_root:
         metadata_import_button.click(trigger_metadata_import, inputs=[metadata_input_image, state_is_generating], outputs=load_data_outputs, queue=False, show_progress=True) \
             .then(style_sorter.sort_styles, inputs=style_selections, outputs=style_selections, queue=False, show_progress=False)
 
+        def trigger_moondream_pre_generation(cloth_img, current_prompt):
+            if cloth_img is None:
+                return current_prompt
+            print("🌙 UI: Generating... Triggering Moondream analysis...")
+            description = moondream_helper.analyze_cloth(cloth_img)
+            if description and not description.startswith("Error"):
+                return f"{description}"
+            return current_prompt
+
         generate_button.click(lambda: (gr.update(visible=True, interactive=True), gr.update(visible=True, interactive=True), gr.update(visible=False, interactive=False), [], True),
                               outputs=[stop_button, skip_button, generate_button, gallery, state_is_generating]) \
+            .then(fn=trigger_moondream_pre_generation, inputs=[cloth_input_image, prompt], outputs=prompt) \
             .then(fn=refresh_seed, inputs=[seed_random, image_seed], outputs=image_seed) \
             .then(fn=get_task, inputs=ctrls, outputs=currentTask) \
             .then(fn=generate_clicked, inputs=currentTask, outputs=[progress_html, progress_window, progress_gallery, gallery, vton_generated_mask]) \
