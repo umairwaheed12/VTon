@@ -8,16 +8,22 @@ from .pants import LBSPantsWarper
 from .universal_vton import UniversalGarmentWarper
 
 class VTONCoordinator:
-    def __init__(self, b2_model_path, b3_model_path):
+    def __init__(self, b2_model_path, b3_model_path, callback=None):
         self.b2_model_path = b2_model_path
         self.b3_model_path = b3_model_path
+        self.callback = callback
+        
+    def _status(self, text):
+        if self.callback:
+            self.callback(text)
+        print(f"[Coordinator] {text}")
         
     def detect_garment_type(self, cloth_img):
         """
         Automatically detects garment type using SegFormer-B3.
         Returns: 'upper', 'lower', 'overall', or 'outfit'
         """
-        print("\n[Coordinator] Automatically detecting garment type...")
+        self._status("Automatically detecting garment type...")
         
         temp_warper = FixedShirtPantsWarper(self.b2_model_path, self.b3_model_path)
         seg_map = temp_warper.segment_cloth_b3(cloth_img)
@@ -87,7 +93,7 @@ class VTONCoordinator:
         if mode == 'auto':
             mode = self.detect_garment_type(cloth_img)
 
-        print(f"\n[Coordinator] Workflow: {mode.upper()}")
+        self._status(f"Workflow: {mode.upper()}")
         
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True, parents=True)

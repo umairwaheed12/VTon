@@ -51,23 +51,35 @@ def generate_clicked(task: worker.AsyncTask):
         gr.update()
 
     worker.async_tasks.append(task)
+    
+    last_yield_time = 0
+    yield_interval = 0.1 # Throttle previews to 10 FPS to prevent proxy buffer lag
 
     while not finished:
         if len(task.yields) == 0:
-            time.sleep(0.05)
+            time.sleep(0.01) # Faster polling (10ms)
             continue
 
         # Drain the entire queue to catch up with backend as fast as possible
         updates = {}
+        has_critical_update = False
+        
         while len(task.yields) > 0:
             flag, product = task.yields.pop(0)
             updates[flag] = product
+            if flag in ['finish', 'vton_mask']:
+                has_critical_update = True
+                
             if flag == 'finish':
                 finished = True
                 break
 
-        # Prepare monolithic update for all 5 outputs: 
-        # [progress_html, progress_window, progress_gallery, gallery, vton_generated_mask]
+        # Check if we should skip this yield to prevent flooding
+        current_time = time.time()
+        if not has_critical_update and (current_time - last_yield_time < yield_interval):
+            continue
+
+        # Prepare monolithic update for all 5 outputs
         final_updates = [gr.update() for _ in range(5)]
         
         if 'preview' in updates:
@@ -100,14 +112,17 @@ def generate_clicked(task: worker.AsyncTask):
             final_updates[1] = gr.update(visible=False)
             final_updates[2] = gr.update(visible=False)
             final_updates[3] = gr.update(visible=True, value=product)
+            print(f'🌙 UI: Finalizing result for task {id(task)}...')
 
         yield tuple(final_updates)
+        last_yield_time = time.time()
 
         # delete Fooocus temp images, only keep gradio temp images
         if args_manager.args.disable_image_log:
-            for filepath in product:
-                if isinstance(filepath, str) and os.path.exists(filepath):
-                    os.remove(filepath)
+            if 'finish' in updates: # Only cleanup on finish to be safe
+                for filepath in product:
+                    if isinstance(filepath, str) and os.path.exists(filepath):
+                        os.remove(filepath)
 
     execution_time = time.perf_counter() - execution_start_time
     print(f'Total time: {execution_time:.2f} seconds')

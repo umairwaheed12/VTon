@@ -908,7 +908,8 @@ def worker():
                     # models_downloader.py paths (Standardized)
                     seg_model_path = os.path.join(fooocus_root, 'models', 'segformer_b2_clothes.onnx')
                     saree_model_path = os.path.join(fooocus_root, 'models', 'segformer-b3-fashion')
-                    coordinator = VTONCoordinator(seg_model_path, saree_model_path)
+                    vton_status = lambda t: progressbar(async_task, 1, f'VTON: {t}')
+                    coordinator = VTONCoordinator(seg_model_path, saree_model_path, callback=vton_status)
 
                     # Map UI label to mode
                     # Map UI label to mode
