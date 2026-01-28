@@ -151,12 +151,17 @@ def analyze_cloth(image):
     
     query = "describe the outfit"
     
-    print(f"🌙 Moondream: Querying: {query}...")
+    print(f"🌙 Moondream: Querying (answer_question): {query}...")
     start_time = time.time()
     
     try:
         with torch.no_grad():
-            response = model.query(image, query)["answer"]
+            image_embeds = model.encode_image(image)
+            response = model.answer_question(
+                image_embeds=image_embeds,
+                question=query,
+                tokenizer=processor
+            )
             
         elapsed = time.time() - start_time
         description = response.strip()
