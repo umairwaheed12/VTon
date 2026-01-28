@@ -22,17 +22,43 @@ _MOONDREAM_PROCESSOR = None
 def get_device():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
+def find_b2_model(models_dir):
+    """Robustly find the B2 ONNX model in common locations."""
+    # 1. Direct in models/ (User's current structure)
+    path1 = os.path.join(models_dir, 'segformer_b2_clothes.onnx')
+    if os.path.exists(path1):
+        return path1
+    
+    # 2. In SegFormerB2Clothes/ (models_downloader structure)
+    path2 = os.path.join(models_dir, 'SegFormerB2Clothes', 'segformer_b2_clothes.onnx')
+    if os.path.exists(path2):
+        return path2
+        
+    return None
+
 def get_b2_session(model_path):
     global _B2_SESSION
     if _B2_SESSION is None:
+        # If absolute path fails, try searching relative to models dir
+        if not os.path.exists(model_path):
+            models_dir = os.path.dirname(model_path)
+            found_path = find_b2_model(models_dir)
+            if found_path:
+                model_path = found_path
+        
         print(f"🔄 Loader: Loading SegFormer B2 (ONNX) from {model_path}...")
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        if 'CUDAExecutionProvider' not in ort.get_available_providers():
-             print("⚠️ Loader: CUDAExecutionProvider not found for ONNX! Falling back to CPU.")
+        available = ort.get_available_providers()
+        providers = []
+        if 'CUDAExecutionProvider' in available:
+            providers.append('CUDAExecutionProvider')
+        providers.append('CPUExecutionProvider')
+        
+        if 'CUDAExecutionProvider' not in providers[0]:
+             print(f"⚠️ Loader: CUDAExecutionProvider not available in ONNX! Available: {available}. Using CPU for B2.")
         
         try:
             _B2_SESSION = ort.InferenceSession(str(model_path), providers=providers)
-            print("✅ Loader: SegFormer B2 loaded.")
+            print(f"✅ Loader: SegFormer B2 loaded. (Provider: {_B2_SESSION.get_providers()[0]})")
         except Exception as e:
             print(f"❌ Loader: Failed to load SegFormer B2: {e}")
             raise e
@@ -73,10 +99,15 @@ def get_lip_session(model_path):
     global _LIP_SESSION
     if _LIP_SESSION is None:
         print(f"🔄 Loader: Loading LIP Parsing (ONNX) from {model_path}...")
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        available = ort.get_available_providers()
+        providers = []
+        if 'CUDAExecutionProvider' in available:
+            providers.append('CUDAExecutionProvider')
+        providers.append('CPUExecutionProvider')
+        
         try:
             _LIP_SESSION = ort.InferenceSession(str(model_path), providers=providers)
-            print("✅ Loader: LIP Parsing loaded.")
+            print(f"✅ Loader: LIP Parsing loaded. (Provider: {_LIP_SESSION.get_providers()[0]})")
         except Exception as e:
              print(f"❌ Loader: Failed to load LIP Parsing: {e}")
              raise e
@@ -110,11 +141,11 @@ def preload_all_models(fooocus_root):
     models_dir = os.path.join(fooocus_root, 'models')
     
     # 1. SegFormer B2 (Clothes)
-    b2_path = os.path.join(models_dir, 'segformer_b2_clothes.onnx')
-    if os.path.exists(b2_path):
+    b2_path = find_b2_model(models_dir)
+    if b2_path:
         get_b2_session(b2_path)
     else:
-        print(f"⚠️ Loader: B2 model not found at {b2_path}")
+        print(f"⚠️ Loader: B2 model (segformer_b2_clothes.onnx) not found in {models_dir} or subfolders!")
 
     # 2. SegFormer B3 (Fashion)
     b3_path = os.path.join(models_dir, 'segformer-b3-fashion')

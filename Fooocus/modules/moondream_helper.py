@@ -70,14 +70,20 @@ _model = None
 _processor = None
 
 def get_moondream_model_path():
-    """Locate the Moondream2 model directory."""
-    # Look for the 'models' folder at the project root
-    # moondream_helper is in /Fooocus/modules/, so its parent's parent is the project root (usually /VTon)
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    """Locate the Moondream2 model in the Fooocus structure."""
+    # Try relative to this file
+    base_dir = Path(__file__).resolve().parents[1]
     local_path = base_dir / "models" / "moondream2"
     
     if local_path.exists():
         return str(local_path)
+    
+    # Try one more fallback: shared models dir
+    shared_path = Path("models/moondream2").absolute()
+    if shared_path.exists():
+        return str(shared_path)
+
+    print(f"🌙 Moondream: Local model not found at {local_path}. Falling back to HuggingFace...")
     return "vikhyatk/moondream2"
 
 def load_moondream():
