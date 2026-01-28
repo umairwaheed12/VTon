@@ -66,40 +66,42 @@ def generate_clicked(task: worker.AsyncTask):
                 finished = True
                 break
 
+        # Prepare monolithic update for all 5 outputs: 
+        # [progress_html, progress_window, progress_gallery, gallery, vton_generated_mask]
+        final_updates = [gr.update() for _ in range(5)]
+        
         if 'preview' in updates:
             percentage, title, image = updates['preview']
-            yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
-                gr.update(visible=True, value=image) if image is not None else gr.update(), \
-                gr.update(), \
-                gr.update(visible=False), \
-                gr.update()
+            final_updates[0] = gr.update(visible=True, value=modules.html.make_progress_html(percentage, title))
+            if image is not None:
+                final_updates[1] = gr.update(visible=True, value=image)
+            final_updates[3] = gr.update(visible=False)
 
         if 'results' in updates:
             product = updates['results']
-            yield gr.update(visible=True), \
-                gr.update(visible=True), \
-                gr.update(visible=True, value=product), \
-                gr.update(visible=False), \
-                gr.update()
+            final_updates[0] = gr.update(visible=True)
+            final_updates[1] = gr.update(visible=True)
+            final_updates[2] = gr.update(visible=True, value=product)
+            final_updates[3] = gr.update(visible=False)
 
         if 'vton_mask' in updates:
             product = updates['vton_mask']
-            yield gr.update(visible=True), \
-                gr.update(visible=True), \
-                gr.update(), \
-                gr.update(visible=False), \
-                gr.update(value=product, visible=False)
+            final_updates[0] = gr.update(visible=True)
+            final_updates[1] = gr.update(visible=True)
+            final_updates[3] = gr.update(visible=False)
+            final_updates[4] = gr.update(value=product, visible=False)
 
         if 'finish' in updates:
             product = updates['finish']
             if not args_manager.args.disable_enhance_output_sorting:
                 product = sort_enhance_images(product, task)
 
-            yield gr.update(visible=False), \
-                gr.update(visible=False), \
-                gr.update(visible=False), \
-                gr.update(visible=True, value=product), \
-                gr.update()
+            final_updates[0] = gr.update(visible=False)
+            final_updates[1] = gr.update(visible=False)
+            final_updates[2] = gr.update(visible=False)
+            final_updates[3] = gr.update(visible=True, value=product)
+
+        yield tuple(final_updates)
 
         # delete Fooocus temp images, only keep gradio temp images
         if args_manager.args.disable_image_log:
