@@ -905,8 +905,8 @@ def worker():
                     from modules.virtual_tryon2.vton_coordinator import VTONCoordinator
                     # Discover Fooocus root (2 levels up from modules/async_worker.py)
                     fooocus_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    # models_downloader.py paths
-                    seg_model_path = os.path.join(fooocus_root, 'models', 'SegFormerB2Clothes', 'segformer_b2_clothes.onnx')
+                    # models_downloader.py paths (Standardized)
+                    seg_model_path = os.path.join(fooocus_root, 'models', 'segformer_b2_clothes.onnx')
                     saree_model_path = os.path.join(fooocus_root, 'models', 'segformer-b3-fashion')
                     coordinator = VTONCoordinator(seg_model_path, saree_model_path)
 

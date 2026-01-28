@@ -1,15 +1,10 @@
-import os
-# FORCE Python implementation of Protobuf to avoid MediaPipe GetPrototype error
-os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import cv2
 import numpy as np
-import onnxruntime as ort
-import mediapipe as mp
 import torch
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 from pathlib import Path
 from .vton_masking_helper import VTONMasker
 from .artificial_skin_helper import ArtificialSkinHelper
+from .model_loader import get_b2_session, get_b3_model_and_processor, get_pose_detector, get_device
 
 class FixedShirtPantsWarper:
     """
@@ -17,25 +12,13 @@ class FixedShirtPantsWarper:
     """
     
     def __init__(self, b2_model_path, b3_model_path):
-        # B2 ONNX (Legacy/Fallback)
-        self.session = ort.InferenceSession(str(b2_model_path))
+        # Cache models via model_loader
+        self.device = get_device()
+        self.session = get_b2_session(b2_model_path)
         self.input_name = self.session.get_inputs()[0].name
         
-        # B3 Torch (Primary for Fashion)
-        print(f"Loading SegFormer-B3 model from: {b3_model_path}")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {self.device}")
-        
-        self.b3_processor = SegformerImageProcessor.from_pretrained(b3_model_path)
-        self.b3_model = SegformerForSemanticSegmentation.from_pretrained(b3_model_path).to(self.device)
-        self.b3_model.eval()
-        
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=True,
-            model_complexity=2,
-            min_detection_confidence=0.5
-        )
+        self.b3_model, self.b3_processor = get_b3_model_and_processor(b3_model_path)
+        self.pose = get_pose_detector()
         
         # Discover project root (2 levels up find Fooocus root)
         base_dir = Path(__file__).resolve().parents[2]

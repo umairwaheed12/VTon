@@ -1,12 +1,7 @@
-import os
-os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import cv2
 import numpy as np
 import torch
-import onnxruntime as ort
 import mediapipe as mp
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
-from segment_anything import sam_model_registry, SamPredictor
 
 class VTONMasker:
     """
@@ -16,45 +11,24 @@ class VTONMasker:
     """
     
     def __init__(self, seg_model_path=None, b3_model_path=None, sam_model_path=None):
-        self.session = None
-        self.processor = None
-        self.model = None
-        self.predictor = None # SAM Predictor
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        # 1. Initialize B2 (ONNX) - Fast, good for basic parts
-        if seg_model_path:
-            try:
-                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-                self.session = ort.InferenceSession(str(seg_model_path), providers=providers)
-                self.input_name = self.session.get_inputs()[0].name
-                print(f"✅ VTONMasker: Loaded B2 ONNX from {seg_model_path}")
-            except Exception as e:
-                print(f"⚠ VTONMasker: Failed to load B2 ONNX: {e}")
-
-        # 2. Initialize B3 (HuggingFace) - High Quality Fashion
+        from .model_loader import get_b2_session, get_b3_model_and_processor, get_sam_predictor, get_pose_detector, get_device
+        
+        self.device = get_device()
+        
+        # 1. B2 (ONNX)
+        self.session = get_b2_session(seg_model_path) if seg_model_path else None
+        self.input_name = self.session.get_inputs()[0].name if self.session else None
+        
+        # 2. B3 (Fashion)
+        self.model, self.processor = (None, None)
         if b3_model_path:
-            try:
-                self.processor = SegformerImageProcessor.from_pretrained(b3_model_path)
-                self.model = SegformerForSemanticSegmentation.from_pretrained(b3_model_path).to(self.device).eval()
-                print(f"✅ VTONMasker: Loaded B3 Torch from {b3_model_path}")
-            except Exception as e:
-                print(f"⚠ VTONMasker: Failed to load B3 Torch: {e}")
-
-        # 3. Initialize MediaPipe (Robust Hands/Feet)
-        self.mp_pose = mp.solutions.pose
-        self.pose_detector = self.mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
-
-        # 4. Initialize SAM
-        if sam_model_path:
-            try:
-                # Assuming vit_b for the provided model 'sam_vit_b_01ec64.pth'
-                sam = sam_model_registry["vit_b"](checkpoint=sam_model_path)
-                sam.to(device=self.device)
-                self.predictor = SamPredictor(sam)
-                print(f"✅ VTONMasker: Loaded SAM from {sam_model_path}")
-            except Exception as e:
-                print(f"⚠ VTONMasker: Failed to load SAM: {e}")
+            self.model, self.processor = get_b3_model_and_processor(b3_model_path)
+            
+        # 3. MediaPipe
+        self.pose_detector = get_pose_detector()
+        
+        # 4. SAM
+        self.predictor = get_sam_predictor(sam_model_path) if sam_model_path else None
 
     def _segment_b3(self, image):
         """Runs SegFormer B3 (High Quality). Returns class map."""

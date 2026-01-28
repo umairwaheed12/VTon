@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-import onnxruntime as ort
-import os
+from .model_loader import get_b2_session
 
 class ClothRemover:
     """
@@ -9,25 +8,8 @@ class ClothRemover:
     and replace them with a natural generated background.
     """
     def __init__(self, seg_model_path):
-        self.seg_model_path = seg_model_path
-        self._init_segformer()
-
-    def _init_segformer(self):
-        if not os.path.exists(self.seg_model_path):
-            raise FileNotFoundError(f"SegFormer model not found at {self.seg_model_path}")
-            
-        # Use GPU if available
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        try:
-            sess_opts = ort.SessionOptions()
-            sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            self.session = ort.InferenceSession(str(self.seg_model_path), sess_options=sess_opts, providers=providers)
-            print(f"ClothRemover ONNX Providers: {self.session.get_providers()}")
-        except Exception:
-            print("Warning: Failed to load ONNX with CUDA, falling back to CPU")
-            self.session = ort.InferenceSession(str(self.seg_model_path), providers=['CPUExecutionProvider'])
-            
-        self.input_name = self.session.get_inputs()[0].name
+        self.session = get_b2_session(seg_model_path)
+        self.input_name = self.session.get_inputs()[0].name if self.session else None
 
     def _segment_logits(self, image):
         """Runs SegFormer on the image."""

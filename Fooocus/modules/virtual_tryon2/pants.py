@@ -1,22 +1,20 @@
-import os
-os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import cv2
 import numpy as np
-import mediapipe as mp
-import onnxruntime as ort
 import torch
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 from pathlib import Path
 from .vton_masking_helper import VTONMasker
 from .artificial_skin_helper import ArtificialSkinHelper
+from .model_loader import get_b2_session, get_b3_model_and_processor, get_sam_predictor, get_pose_detector, get_lip_session, get_device
 
 class LBSPantsWarper:
     def __init__(self, seg_model_path, b3_path=None):
-        # Discover project root (2 levels up find Fooocus root)
+        # Discover project root
         self.base_dir = Path(__file__).resolve().parents[2]
+        self.device = get_device()
         
         self.seg_model_path = seg_model_path
         self.b3_path = b3_path if b3_path else str(self.base_dir / "models" / "segformer-b3-fashion")
+        
         self._init_segformer()
         self._init_b3()
         self._init_mediapipe()
@@ -31,42 +29,21 @@ class LBSPantsWarper:
         self.skin_helper = ArtificialSkinHelper()
         
     def _init_lip(self):
-        """Initialize LIP Human Parsing Model (Standardized path)."""
+        """Initialize LIP Human Parsing Model via loader."""
         self.lip_model_path = str(self.base_dir / "models" / "humanparsing" / "parsing_lip.onnx")
-        print(f"Loading LIP Model from {self.lip_model_path}...")
-        try:
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            self.lip_session = ort.InferenceSession(self.lip_model_path, providers=providers)
-            self.lip_input_name = self.lip_session.get_inputs()[0].name
-        except Exception as e:
-            print(f"Failed to load LIP: {e}")
-            self.lip_session = None
+        self.lip_session = get_lip_session(self.lip_model_path)
+        self.lip_input_name = self.lip_session.get_inputs()[0].name if self.lip_session else None
         
     def _init_b3(self):
-        """Initialize B3 for Shorts detection."""
-        print(f"Loading B3 Model from {self.b3_path}...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        try:
-            self.b3_processor = SegformerImageProcessor.from_pretrained(self.b3_path)
-            self.b3_model = SegformerForSemanticSegmentation.from_pretrained(self.b3_path)
-            self.b3_model.to(self.device).eval()
-        except Exception as e:
-            print(f"Failed to load B3: {e}")
-            self.b3_model = None
+        """Initialize B3 via loader."""
+        self.b3_model, self.b3_processor = get_b3_model_and_processor(self.b3_path)
         
     def _init_segformer(self):
-        if not Path(self.seg_model_path).exists():
-            raise FileNotFoundError(f"SegFormer model not found at {self.seg_model_path}")
-        self.session = ort.InferenceSession(str(self.seg_model_path), providers=['CPUExecutionProvider'])
-        self.input_name = self.session.get_inputs()[0].name
+        self.session = get_b2_session(self.seg_model_path)
+        self.input_name = self.session.get_inputs()[0].name if self.session else None
 
     def _init_mediapipe(self):
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=True,
-            model_complexity=2,
-            min_detection_confidence=0.5
-        )
+        self.pose = get_pose_detector()
 
     # -----------------------------------------------------------
     # Pose & Seg

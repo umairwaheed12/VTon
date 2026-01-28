@@ -1158,6 +1158,14 @@ def dump_default_english_config():
 
 # dump_default_english_config()
 
+# Preload VTON Models on GPU to avoid CPU load and lag during generation
+try:
+    from modules.virtual_tryon2.model_loader import preload_all_models
+    fooocus_root = os.path.dirname(os.path.abspath(__file__))
+    preload_all_models(fooocus_root)
+except Exception as e:
+    print(f"⚠️ Loader: Preloading failed: {e}")
+
 shared.gradio_root.launch(
     inbrowser=args_manager.args.in_browser,
     server_name=args_manager.args.listen,

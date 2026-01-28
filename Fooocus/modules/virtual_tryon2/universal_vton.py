@@ -1,42 +1,23 @@
-try:
-    import mediapipe as mp
-    HAS_MEDIAPIPE = True
-except Exception:
-    HAS_MEDIAPIPE = False
-
 import cv2
 import numpy as np
-import onnxruntime as ort
 import torch
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 from pathlib import Path
 from .vton_masking_helper import VTONMasker
 from .artificial_skin_helper import ArtificialSkinHelper
+from .model_loader import get_b2_session, get_b3_model_and_processor, get_pose_detector, get_device
 
 class UniversalGarmentWarper:
     def __init__(self, b2_model_path, b3_model_path):
-        # B2 ONNX
-        print(f"Loading SegFormer-B2 ONNX from: {b2_model_path}")
-        self.b2_session = ort.InferenceSession(str(b2_model_path), providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-        self.b2_input_name = self.b2_session.get_inputs()[0].name
+        # 1. B2 ONNX via loader
+        self.b2_session = get_b2_session(b2_model_path)
+        self.b2_input_name = self.b2_session.get_inputs()[0].name if self.b2_session else None
         
-        # B3 Torch
-        print(f"Loading SegFormer-B3 from: {b3_model_path}")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.b3_processor = SegformerImageProcessor.from_pretrained(b3_model_path)
-        self.b3_model = SegformerForSemanticSegmentation.from_pretrained(b3_model_path).to(self.device).eval()
+        # 2. B3 Torch via loader
+        self.device = get_device()
+        self.b3_model, self.b3_processor = get_b3_model_and_processor(b3_model_path)
         
-        # MediaPipe Pose with Fallback
-        self.pose = None
-        if HAS_MEDIAPIPE:
-            try:
-                self.mp_pose = mp.solutions.pose
-                self.pose = self.mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
-                print("✓ MediaPipe Pose initialized")
-            except Exception as e:
-                print(f"⚠ MediaPipe initialization failed: {e}. Using segmentation-based pose estimation.")
-        else:
-            print("⚠ MediaPipe not available. Using segmentation-based pose estimation.")
+        # 3. MediaPipe Pose via loader
+        self.pose = get_pose_detector()
             
         # Discover project root (2 levels up find Fooocus root)
         self.base_dir = Path(__file__).resolve().parents[2]

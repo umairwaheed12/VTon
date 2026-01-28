@@ -1,14 +1,11 @@
-import os
-os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import cv2
 import numpy as np
-import mediapipe as mp
 from pathlib import Path
+from .model_loader import get_pose_detector
 
 class ArtificialSkinHelper:
     def __init__(self):
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
+        self.pose = get_pose_detector()
         # Default skin color (Peach/Tan)
         self.default_skin_color = (138, 176, 245) 
 
